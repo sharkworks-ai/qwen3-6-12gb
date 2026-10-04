@@ -3,10 +3,8 @@ from __future__ import annotations
 import csv
 import subprocess
 import threading
-import time
 from datetime import UTC, datetime
 from pathlib import Path
-
 
 QUERY = (
     "index,name,memory.total,memory.used,utilization.gpu,"
