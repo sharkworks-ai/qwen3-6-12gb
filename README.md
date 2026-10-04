@@ -50,6 +50,17 @@ A quality-first variant may keep Q4 experts and offload a small amount of MoE we
 | KV cache | Q4 K/V baseline |
 | Routed expert floor | ~3-bit mainline; ternary is experimental |
 
+## OxCoder-9B external benchmark gate
+
+The project is only considered worthwhile if the final 12 GB / 262K model also surpasses **OrionLLM/OxCoder-9B**:
+
+- beat OxCoder on at least **6 of its 11 published benchmark rows**;
+- beat it on at least **5 of the 8 coding + agentic rows**;
+- beat it on at least one SWE-bench result;
+- beat it on at least one Terminal-Bench 2.1 harness.
+
+Comparisons must use matched published methodology where possible. See [docs/OXCODER_BASELINE.md](docs/OXCODER_BASELINE.md).
+
 ## Repository map
 
 ```text
