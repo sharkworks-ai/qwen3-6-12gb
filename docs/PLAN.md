@@ -29,6 +29,10 @@ The target is not merely to make the model load. The release candidate must pres
 | Full-history cache | preferred; no lossy KV eviction in mainline |
 | Depth pruning | last resort only |
 | Ternary routed experts | research branch only until agent-loop quality is proven |
+| OxCoder-9B overall dominance | > OxCoder on >= 6/11 published rows |
+| OxCoder coding+agentic dominance | > OxCoder on >= 5/8 coding+agentic rows |
+| OxCoder SWE guardrail | beat >= 1 of SWE-bench Verified / SWE-bench Pro |
+| OxCoder Terminal guardrail | beat >= 1 Terminal-Bench 2.1 harness |
 
 A practical full-context test must reserve output space. A 262,144-token context includes generated tokens, so the release suite should include prompts around 245K-250K tokens with 8K-16K available for reasoning and output.
 
@@ -257,6 +261,20 @@ Keep a smaller suite for:
 - instruction following;
 - basic factual competence;
 - shell/config/networking knowledge relevant to agents.
+
+## 9.5 OxCoder-9B external dominance benchmark
+
+OxCoder-9B is the project's hard external value baseline. The final 12 GB / 262K model must beat the published OxCoder snapshot on a majority of rows, not merely retain the tuned Qwen reference.
+
+Required finalist gate:
+
+- win at least 6 of 11 published OxCoder benchmark rows overall;
+- win at least 5 of the 8 coding + agentic rows;
+- beat OxCoder on at least one of SWE-bench Verified or SWE-bench Pro;
+- beat OxCoder on at least one of its two published Terminal-Bench 2.1 harness results;
+- ties do not count as wins.
+
+The pinned scores and methodology notes live in [OXCODER_BASELINE.md](OXCODER_BASELINE.md). Match published harness settings where possible and keep held-out evaluation instances out of SFT, RLVR, recovery, and compression calibration data.
 
 ## 10. Phase 3: dataset construction
 
@@ -826,6 +844,9 @@ The project is done when at least one release candidate:
 - preserves at least 95% of the tuned reference's agent/coding/long-context performance;
 - completes iterative tool-use loops reliably;
 - survives repeated runs without OOM;
-- is reproducible from repository configs and documented artifact hashes.
+- is reproducible from repository configs and documented artifact hashes;
+- beats OxCoder-9B on at least 6/11 published rows overall;
+- beats OxCoder-9B on at least 5/8 coding + agentic rows;
+- passes the SWE-bench and Terminal-Bench OxCoder guardrails in docs/OXCODER_BASELINE.md.
 
 A second quality-first variant with small CPU expert offload should be released if it performs materially better.
