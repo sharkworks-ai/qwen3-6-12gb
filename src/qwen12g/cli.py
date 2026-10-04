@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Annotated
 
 import typer
 import yaml
@@ -46,11 +47,13 @@ def show_config(path: Path = Path("configs/search/default.yaml")) -> None:
 
 @worker_app.command("context-create")
 def worker_context_create(
-    ssh_host: str = typer.Argument(
-        ...,
-        help="SSH target in user@host form, for example qwen-worker@training-host.",
-    ),
-    context: str = typer.Option("qwen5090", "--context"),
+    ssh_host: Annotated[
+        str,
+        typer.Argument(
+            help="SSH target in user@host form, for example qwen-worker@training-host."
+        ),
+    ],
+    context: Annotated[str, typer.Option("--context")] = "qwen5090",
 ) -> None:
     """Create the SSH-backed Docker context on the laptop."""
     create_context(context, ssh_host)
@@ -59,7 +62,7 @@ def worker_context_create(
 
 @worker_app.command("doctor")
 def worker_doctor(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
     """Validate laptop-to-worker Docker connectivity and GPU inventory."""
     config = load_worker_config(config_path)
@@ -99,7 +102,7 @@ def worker_doctor(
 
 @worker_app.command("build")
 def worker_build(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
     """Build the worker image on the remote Docker daemon."""
     build_worker(load_worker_config(config_path))
@@ -107,7 +110,7 @@ def worker_build(
 
 @worker_app.command("start")
 def worker_start(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
     """Start the persistent trainer service on the remote worker."""
     start_worker(load_worker_config(config_path))
@@ -115,7 +118,7 @@ def worker_start(
 
 @worker_app.command("stop")
 def worker_stop(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
     """Stop project services on the remote worker."""
     stop_worker(load_worker_config(config_path))
@@ -123,7 +126,7 @@ def worker_stop(
 
 @worker_app.command("gpus")
 def worker_gpus(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
     """Show GPUs visible inside the worker container."""
     config = load_worker_config(config_path)
@@ -133,8 +136,8 @@ def worker_gpus(
 
 @worker_app.command("logs")
 def worker_show_logs(
-    config_path: Path = typer.Option(DEFAULT_WORKER_CONFIG, "--config"),
-    tail: int = typer.Option(200, "--tail", min=1, max=10000),
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+    tail: Annotated[int, typer.Option("--tail", min=1, max=10000)] = 200,
 ) -> None:
     """Show recent trainer-service logs without opening a remote shell."""
     worker_logs(load_worker_config(config_path), tail=tail)
