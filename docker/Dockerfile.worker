@@ -1,0 +1,32 @@
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG PYTHON_VERSION=3.12
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv python3-dev \
+    git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --break-system-packages --upgrade pip setuptools wheel && \
+    python3 -m pip install --break-system-packages \
+      torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}
+
+WORKDIR /workspace
+
+COPY pyproject.toml README.md /workspace/
+COPY src /workspace/src
+RUN python3 -m pip install --break-system-packages -e ".[search]"
+
+COPY . /workspace
+
+RUN useradd --create-home --uid 10001 worker && \
+    mkdir -p /qwen-data && chown -R worker:worker /qwen-data /workspace
+
+USER worker
+
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/qwen-data/hf-cache
+
+CMD ["bash"]
