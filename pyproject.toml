@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qwen36-12gb"
+version = "0.1.0"
+description = "Automated research pipeline for Qwen3.6-35B-A3B on 12 GB VRAM"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.9",
+  "PyYAML>=6.0",
+  "psutil>=6.0",
+  "rich>=13.9",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.7"]
+search = ["optuna>=4.0", "duckdb>=1.1", "pandas>=2.2", "pyarrow>=17"]
+
+[project.scripts]
+qwen12g = "qwen12g.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
