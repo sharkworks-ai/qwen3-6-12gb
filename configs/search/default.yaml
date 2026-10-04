@@ -1,0 +1,61 @@
+project:
+  name: qwen3.6-12gb
+  base_model: Qwen/Qwen3.6-35B-A3B
+  target_context: 262144
+  target_vram_mib: 11776
+  primary_runtime: llama.cpp
+
+release_gates:
+  tool_schema_validity: 0.99
+  agent_retention: 0.95
+  coding_retention: 0.95
+  long_context_retention: 0.95
+  repeated_full_context_runs: 5
+
+search:
+  objectives:
+    maximize:
+      - agent_score
+      - coding_score
+      - long_context_score
+      - decode_tokens_per_second
+    minimize:
+      - peak_vram_mib
+      - cpu_offload_gib
+      - prefill_seconds
+  expert_retention_candidates:
+    - {early: 256, middle: 192, late: 160}
+    - {early: 256, middle: 128, late: 96}
+    - {early: 256, middle: 96, late: 96}
+    - {early: 128, middle: 128, late: 128}
+  routed_expert_quant:
+    - q4
+    - q3
+    - mixed_q3_q4
+  always_active_quant:
+    - q6
+    - q5
+    - q4
+  kv:
+    - {k: q4_0, v: q4_0}
+  depth:
+    - 40
+    - 36
+  ternary:
+    enabled: false
+    experimental_branch: true
+
+evaluation:
+  context_lengths:
+    - 32768
+    - 65536
+    - 131072
+    - 200000
+    - 250000
+  final_context_window: 262144
+  tiers:
+    smoke: true
+    cheap: true
+    normal: true
+    expensive: true
+    finalist: true
