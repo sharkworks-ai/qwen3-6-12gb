@@ -12,7 +12,6 @@ from qwen12g.db import RunDB, RunRecord
 from qwen12g.manifest import git_commit, new_run_id
 from qwen12g.worker import WorkerConfig, docker_args, run_command
 
-
 PROJECT_LABEL = "qwen3.6-12gb"
 DEFAULT_IMAGE = "qwen12g-worker:local"
 ALLOWED_STAGES = {"smoke"}
