@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Models / datasets / runs
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+models/
+datasets/cache/
+runs/
+artifacts/
+checkpoints/
+
+# Databases
+*.sqlite
+*.sqlite3
+*.duckdb
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+logs/
