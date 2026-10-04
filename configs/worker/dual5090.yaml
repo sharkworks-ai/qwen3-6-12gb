@@ -1,0 +1,27 @@
+worker:
+  name: dual5090
+  docker_context: qwen5090
+  compose_file: docker/compose.worker.yml
+  service: trainer
+  data_root: /srv/qwen12g
+  expected_gpus: 2
+  expected_gpu_model: "NVIDIA GeForce RTX 5090"
+  mode: distributed
+
+controller:
+  location: laptop
+  allow_arbitrary_ssh: false
+  detach_long_jobs: true
+
+storage:
+  hf_cache: /srv/qwen12g/hf-cache
+  datasets: /srv/qwen12g/datasets
+  checkpoints: /srv/qwen12g/checkpoints
+  artifacts: /srv/qwen12g/artifacts
+  runs: /srv/qwen12g/runs
+
+security:
+  docker_transport: ssh
+  mount_docker_socket_into_worker: false
+  forward_ssh_agent: false
+  git_write_token_on_worker: false
