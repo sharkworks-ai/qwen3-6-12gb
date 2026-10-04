@@ -103,7 +103,19 @@ def compose_config(config: WorkerConfig) -> subprocess.CompletedProcess[str]:
 
 
 def build_worker(config: WorkerConfig) -> None:
-    run_command(compose_args(config, "build", config.service))
+    revision = run_command(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+    ).stdout.strip()
+    run_command(
+        compose_args(
+            config,
+            "build",
+            "--build-arg",
+            f"GIT_COMMIT={revision}",
+            config.service,
+        )
+    )
 
 
 def start_worker(config: WorkerConfig) -> None:
