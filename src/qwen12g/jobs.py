@@ -47,6 +47,21 @@ def _image_id(config: WorkerConfig, image: str) -> str:
     return result.stdout.strip()
 
 
+def _image_revision(config: WorkerConfig, image: str) -> str:
+    result = run_command(
+        docker_args(
+            config,
+            "image",
+            "inspect",
+            image,
+            "--format",
+            "{{index .Config.Labels \"org.opencontainers.image.revision\"}}",
+        ),
+        capture_output=True,
+    )
+    return result.stdout.strip()
+
+
 def _gpu_argument(mode: str) -> str:
     if mode == "distributed":
         return "all"
@@ -78,6 +93,13 @@ def launch_stage(
     _require_clean_git()
     commit = git_commit()
     image_id = _image_id(config, image)
+    image_revision = _image_revision(config, image)
+    if image_revision != commit:
+        raise RuntimeError(
+            "Remote worker image does not match the current Git commit. "
+            "Run 'qwen12g worker build' before launching the experiment. "
+            f"image={image_revision!r}, git={commit!r}"
+        )
     run_id = new_run_id(stage)
     container_name = _safe_container_name(run_id)
     created_at = datetime.now(UTC).isoformat()
@@ -149,7 +171,10 @@ def launch_stage(
         created_at=created_at,
         updated_at=created_at,
         remote_run_dir=remote_run_dir,
-        metadata={"launch_args_kind": "registered-stage"},
+        metadata={
+            "launch_args_kind": "registered-stage",
+            "image_revision": image_revision,
+        },
     )
     (db or RunDB()).insert(record)
     return record
