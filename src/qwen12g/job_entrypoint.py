@@ -10,7 +10,6 @@ from pathlib import Path
 from qwen12g.manifest import write_json
 from qwen12g.telemetry import NvidiaSmiSampler, peak_memory_by_gpu
 
-
 STAGES: dict[str, list[str]] = {
     "smoke": [sys.executable, "-m", "qwen12g.smoke_job"],
 }
@@ -51,7 +50,7 @@ def main() -> None:
         with (run_dir / "stdout.log").open("w", encoding="utf-8") as stdout, (
             run_dir / "stderr.log"
         ).open("w", encoding="utf-8") as stderr:
-            completed = subprocess.run(command, stdout=stdout, stderr=stderr, text=True)
+            completed = subprocess.run(command, stdout=stdout, stderr=stderr, text=True, check=False)
             exit_code = completed.returncode
     finally:
         sampler.stop()
