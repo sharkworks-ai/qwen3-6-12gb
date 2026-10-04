@@ -14,6 +14,27 @@ Produce a reproducible release that:
 - is validated with complete tool-use and repository-editing trajectories;
 - can be rebuilt automatically from recorded configs and experiment metadata.
 
+## Execution architecture
+
+The project uses a split control/compute architecture:
+
+```text
+Laptop control plane
+  agent + Git + experiment controller
+            |
+            | SSH-backed Docker context
+            v
+2x RTX 5090 compute host
+  containerized training / profiling / quant / eval
+            |
+            v
+12 GB release-validation GPU
+```
+
+The autonomous agent stays on the laptop. The remote GPU host is an execution worker and persistent artifact store, not the source of project decisions or credentials.
+
+See [docs/REMOTE_WORKER.md](docs/REMOTE_WORKER.md).
+
 ## Working hypothesis
 
 The most promising path is:
