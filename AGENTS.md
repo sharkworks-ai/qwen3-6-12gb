@@ -4,7 +4,16 @@
 
 Build and validate the strongest practical Qwen/Qwen3.6-35B-A3B derivative for autonomous coding and tool use on a single 12 GB GPU with a 262,144-token context window.
 
-Read `docs/PLAN.md` before making architectural changes.
+Read `docs/PLAN.md` and `docs/REMOTE_WORKER.md` before making architectural changes.
+
+## Execution boundary
+
+- The agent runs on the laptop control plane.
+- The dual-5090 machine is a remote Docker compute worker.
+- Make source changes in the laptop/GitHub working tree, not by editing code independently on the worker.
+- Use project-defined `qwen12g worker ...` and run-controller operations.
+- Do not add a generic arbitrary-SSH command facility for autonomous operation.
+- Do not mount the Docker socket, SSH keys, or laptop credentials into training/evaluation containers.
 
 ## Hard constraints
 
