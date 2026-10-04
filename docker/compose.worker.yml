@@ -1,0 +1,45 @@
+name: qwen12g
+
+x-worker-common: &worker-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.worker
+  image: qwen12g-worker:local
+  working_dir: /workspace
+  ipc: host
+  shm_size: "32gb"
+  environment:
+    HF_HOME: /qwen-data/hf-cache
+    TRANSFORMERS_CACHE: /qwen-data/hf-cache
+    QWEN12G_RUN_ROOT: /qwen-data/runs
+    QWEN12G_ARTIFACT_ROOT: /qwen-data/artifacts
+    PYTHONUNBUFFERED: "1"
+  volumes:
+    - ${QWEN12G_DATA_ROOT:-/srv/qwen12g}/hf-cache:/qwen-data/hf-cache
+    - ${QWEN12G_DATA_ROOT:-/srv/qwen12g}/datasets:/qwen-data/datasets
+    - ${QWEN12G_DATA_ROOT:-/srv/qwen12g}/checkpoints:/qwen-data/checkpoints
+    - ${QWEN12G_DATA_ROOT:-/srv/qwen12g}/artifacts:/qwen-data/artifacts
+    - ${QWEN12G_DATA_ROOT:-/srv/qwen12g}/runs:/qwen-data/runs
+  restart: "no"
+
+services:
+  trainer:
+    <<: *worker-common
+    gpus: all
+    command: ["bash", "-lc", "sleep infinity"]
+
+  gpu0:
+    <<: *worker-common
+    gpus:
+      - driver: nvidia
+        device_ids: ["0"]
+        capabilities: [gpu]
+    command: ["bash", "-lc", "sleep infinity"]
+
+  gpu1:
+    <<: *worker-common
+    gpus:
+      - driver: nvidia
+        device_ids: ["1"]
+        capabilities: [gpu]
+    command: ["bash", "-lc", "sleep infinity"]
