@@ -11,6 +11,29 @@ release_gates:
   coding_retention: 0.95
   long_context_retention: 0.95
   repeated_full_context_runs: 5
+  oxcoder_dominance:
+    baseline: OrionLLM/OxCoder-9B
+    baseline_snapshot: "2026-10-05"
+    overall_wins_required: 6
+    overall_benchmarks: 11
+    coding_agentic_wins_required: 5
+    coding_agentic_benchmarks: 8
+    must_beat_one_swe_benchmark: true
+    must_beat_one_terminal_benchmark: true
+    ties_count_as_wins: false
+
+oxcoder_baseline:
+  terminal_bench_2_1_terminus2: 49.6
+  terminal_bench_2_1_claude_code: 50.8
+  swe_bench_verified: 73.5
+  swe_bench_pro: 49.1
+  nl2repo: 36.2
+  hle_no_tools: 21.2
+  hle_with_tools: 32.8
+  gpqa_diamond: 86.9
+  mcp_atlas: 56.7
+  browsecomp: 57.4
+  claweval: 67.8
 
 search:
   objectives:
@@ -18,6 +41,8 @@ search:
       - agent_score
       - coding_score
       - long_context_score
+      - oxcoder_overall_wins
+      - oxcoder_coding_agentic_wins
       - decode_tokens_per_second
     minimize:
       - peak_vram_mib
@@ -59,3 +84,6 @@ evaluation:
     normal: true
     expensive: true
     finalist: true
+  finalist:
+    run_full_oxcoder_suite: true
+    repeated_runs_when_comparable: 5
