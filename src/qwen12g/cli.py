@@ -4,7 +4,19 @@ from typing import Annotated
 import typer
 import yaml
 from rich import print
+from rich.table import Table
 
+from qwen12g.db import RunDB
+from qwen12g.jobs import (
+    launch_stage,
+    parse_result,
+    read_remote_run_file,
+    remote_storage,
+    run_logs,
+    stop_run,
+    sync_run_status,
+)
+from qwen12g.system_info import full_environment, write_probe
 from qwen12g.worker import (
     build_worker,
     compose_config,
@@ -23,7 +35,22 @@ worker_app = typer.Typer(
     help="Control the remote Docker GPU worker from the laptop.",
     no_args_is_help=True,
 )
+run_app = typer.Typer(
+    help="Launch registered experiment stages on the remote worker.",
+    no_args_is_help=True,
+)
+runs_app = typer.Typer(
+    help="Inspect and control recorded remote runs.",
+    no_args_is_help=True,
+)
+system_app = typer.Typer(
+    help="Capture control-plane and compute-plane environment details.",
+    no_args_is_help=True,
+)
 app.add_typer(worker_app, name="worker")
+app.add_typer(run_app, name="run")
+app.add_typer(runs_app, name="runs")
+app.add_typer(system_app, name="system")
 
 DEFAULT_WORKER_CONFIG = Path("configs/worker/dual5090.yaml")
 
@@ -64,7 +91,7 @@ def worker_context_create(
 def worker_doctor(
     config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
 ) -> None:
-    """Validate laptop-to-worker Docker connectivity and GPU inventory."""
+    """Validate Docker connectivity, worker image, GPUs, and persistent storage."""
     config = load_worker_config(config_path)
 
     inspect_context(config)
@@ -81,14 +108,13 @@ def worker_doctor(
         print(f"  {gpu}")
 
     if len(gpus) != config.expected_gpus:
-        raise typer.Exit(
-            code=2,
+        print(
+            f"[red]Expected {config.expected_gpus} GPUs but detected {len(gpus)}.[/red]"
         )
+        raise typer.Exit(code=2)
 
     if config.expected_gpu_model:
-        mismatches = [
-            gpu for gpu in gpus if config.expected_gpu_model not in gpu
-        ]
+        mismatches = [gpu for gpu in gpus if config.expected_gpu_model not in gpu]
         if mismatches:
             print(
                 "[yellow]Warning: one or more GPUs do not match the configured "
@@ -96,6 +122,11 @@ def worker_doctor(
             )
             for gpu in mismatches:
                 print(f"  {gpu}")
+
+    storage = remote_storage(config)
+    available_gib = storage["available_bytes"] / (1024**3)
+    size_gib = storage["size_bytes"] / (1024**3)
+    print(f"Worker storage: {available_gib:.1f} GiB free of {size_gib:.1f} GiB")
 
     print("[green]Remote worker passed the preliminary doctor checks.[/green]")
 
@@ -134,6 +165,15 @@ def worker_gpus(
         print(gpu)
 
 
+@worker_app.command("storage")
+def worker_storage(
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+) -> None:
+    """Show persistent worker storage capacity."""
+    storage = remote_storage(load_worker_config(config_path))
+    print(storage)
+
+
 @worker_app.command("logs")
 def worker_show_logs(
     config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
@@ -141,6 +181,113 @@ def worker_show_logs(
 ) -> None:
     """Show recent trainer-service logs without opening a remote shell."""
     worker_logs(load_worker_config(config_path), tail=tail)
+
+
+@run_app.command("smoke")
+def run_smoke(
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+    gpu_mode: Annotated[
+        str,
+        typer.Option("--gpu-mode", help="distributed, gpu0, or gpu1"),
+    ] = "distributed",
+) -> None:
+    """Launch a detached GPU smoke run with telemetry and persistent results."""
+    config = load_worker_config(config_path)
+    record = launch_stage(config, stage="smoke", gpu_mode=gpu_mode)
+    print(f"[green]Launched {record.run_id}[/green]")
+    print(f"Container: {record.container_name}")
+    print(f"Git commit: {record.git_commit}")
+    print(f"Image ID: {record.image_id}")
+
+
+@runs_app.command("list")
+def runs_list(
+    limit: Annotated[int, typer.Option("--limit", min=1, max=500)] = 50,
+) -> None:
+    """List runs recorded by the laptop control plane."""
+    records = RunDB().list(limit=limit)
+    table = Table("Run ID", "Stage", "Status", "GPU mode", "Created")
+    for record in records:
+        table.add_row(
+            record.run_id,
+            record.stage,
+            record.status,
+            record.gpu_mode,
+            record.created_at,
+        )
+    print(table)
+
+
+@runs_app.command("status")
+def runs_status(
+    run_id: str,
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+) -> None:
+    """Reconnect to a detached run and synchronize its Docker state."""
+    config = load_worker_config(config_path)
+    record = sync_run_status(config, run_id)
+    print(record)
+
+
+@runs_app.command("logs")
+def runs_logs(
+    run_id: str,
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+    tail: Annotated[int, typer.Option("--tail", min=1, max=10000)] = 200,
+) -> None:
+    """Show Docker logs for a detached run."""
+    db = RunDB()
+    record = db.get(run_id)
+    if record is None:
+        print(f"[red]Unknown run ID: {run_id}[/red]")
+        raise typer.Exit(code=2)
+    print(run_logs(load_worker_config(config_path), record, tail=tail))
+
+
+@runs_app.command("result")
+def runs_result(
+    run_id: str,
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+) -> None:
+    """Read a run's persistent worker-side result.json."""
+    config = load_worker_config(config_path)
+    payload = parse_result(read_remote_run_file(config, run_id, "result.json"))
+    if payload is None:
+        print("[yellow]result.json is not available yet.[/yellow]")
+        raise typer.Exit(code=1)
+    print(payload)
+
+
+@runs_app.command("stop")
+def runs_stop(
+    run_id: str,
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+) -> None:
+    """Stop a detached run without deleting its persistent outputs."""
+    db = RunDB()
+    record = db.get(run_id)
+    if record is None:
+        print(f"[red]Unknown run ID: {run_id}[/red]")
+        raise typer.Exit(code=2)
+    config = load_worker_config(config_path)
+    stop_run(config, record)
+    updated = sync_run_status(config, run_id, db=db)
+    print(f"{run_id}: {updated.status}")
+
+
+@system_app.command("probe")
+def system_probe(
+    config_path: Annotated[Path, typer.Option("--config")] = DEFAULT_WORKER_CONFIG,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+    """Capture laptop and remote-worker environment metadata."""
+    config = load_worker_config(config_path)
+    payload = full_environment(config)
+    if output is not None:
+        write_probe(output, payload)
+        print(f"[green]Wrote {output}[/green]")
+    else:
+        print(payload)
 
 
 if __name__ == "__main__":
