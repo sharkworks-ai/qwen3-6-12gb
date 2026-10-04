@@ -119,6 +119,22 @@ Do not begin with:
 
 Each of those can save memory, but each can damage exactly the multi-step behavior this project is trying to preserve.
 
+## 6.5 Control plane and compute plane
+
+The authoritative architecture is:
+
+- **Laptop = control plane.** The coding/research agent, Git working tree, experiment controller, search policy, benchmark analysis, and write credentials remain on the laptop.
+- **Dual RTX 5090 host = compute plane.** It runs Docker jobs for training, profiling, pruning, quantization, and evaluation and stores large artifacts under `/srv/qwen12g`.
+- **12 GB GPU = release-validation worker.** Finalists must still be tested on the physical target card.
+
+The laptop controls the GPU worker using an SSH-backed Docker context. Do not expose the Docker daemon over an unauthenticated TCP socket.
+
+The controller should expose project-specific operations such as `worker doctor`, `worker build`, `worker start`, `run sft`, `run eval`, and `run quantize`. It should not give the autonomous agent a generic arbitrary SSH execution primitive by default.
+
+The remote worker must not hold GitHub write credentials. Model-generated commands run in separate unprivileged task sandboxes and never receive the host Docker socket, SSH credentials, or unrelated cloud tokens.
+
+See [REMOTE_WORKER.md](REMOTE_WORKER.md).
+
 ## 7. Phase 0: repository and reproducibility foundation
 
 Deliverables:
@@ -134,7 +150,12 @@ Deliverables:
 - VRAM sampler;
 - command runner;
 - checkpoint and artifact naming convention;
-- bootstrap script for a fresh rented GPU host.
+- bootstrap script for the laptop controller;
+- SSH-backed Docker context configuration;
+- dual-5090 Docker worker image and Compose definition;
+- remote host data-root setup;
+- project-specific remote worker CLI;
+- bootstrap script for a fresh GPU host.
 
 Every run must record:
 
@@ -676,9 +697,16 @@ Kill clearly bad candidates.
 - repeated OOM/stability test;
 - actual 12 GB GPU validation.
 
-## 25. Remote RTX 5090 worker
+## 25. Remote dual-RTX 5090 worker
 
-The 5090 is the training and search worker.
+The dual-5090 host is the training and search **compute worker**. The agent and controller remain on the laptop.
+
+The laptop uses the `qwen5090` Docker context over SSH. Worker jobs are containerized and all large state lives under `/srv/qwen12g`.
+
+Two scheduling modes are required:
+
+- `distributed`: one job across both 5090s, normally using one process per GPU;
+- `independent`: one candidate per GPU for parallel search/evaluation when the candidate fits on one card.
 
 Bootstrap should install and verify:
 
@@ -690,7 +718,9 @@ Bootstrap should install and verify:
 - llama.cpp CUDA build;
 - Git LFS if needed;
 - benchmark dependencies;
-- Docker for agent sandboxes.
+- Docker Engine and NVIDIA Container Toolkit on the compute host;
+- SSH access from the laptop controller;
+- Docker for isolated agent-evaluation sandboxes.
 
 The worker must be replaceable. No experiment state should exist only on the rented machine.
 
@@ -784,6 +814,9 @@ The second may be the better real-world agent even if the first is technically c
 
 ### M0 - foundation
 
+- laptop control plane / remote compute-plane split;
+- SSH-backed Docker worker context;
+- dual-5090 worker image and Compose config;
 - repo structure;
 - config schema;
 - worker bootstrap;
