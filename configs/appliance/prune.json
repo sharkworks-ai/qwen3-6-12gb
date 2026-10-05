@@ -1,0 +1,1 @@
+{"model":"Qwen/Qwen3.6-35B-A3B","profile":"/data/artifacts/expert_profile.json","keep_experts":128,"routing_mass_weight":0.5,"output_dir":"/data/checkpoints/qwen36-pruned-128"}

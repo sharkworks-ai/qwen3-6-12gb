@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<h1>12 GB Release Search</h1><p class="muted">Profile → prune → recover → quantize → screen → benchmark → OxCoder gate → Pareto frontier → package.</p>
+<form method="post"><p><label>Source candidate<br><input name="source_candidate" value="{{default_source}}"></label></p><p><label>Maximum candidates<br><input type="number" name="max_candidates" value="64"></label></p><button class="primary">Generate search plan</button></form>
+{% if plan %}<h2>Plan</h2><pre>{{plan}}</pre>{% endif %}
+{% endblock %}

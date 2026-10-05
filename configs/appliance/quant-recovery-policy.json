@@ -1,0 +1,1 @@
+{"trigger":{"coding_retention_below":0.98,"agent_retention_below":0.98,"long_context_retention_below":0.98},"escalate_to_qat_if":{"coding_retention_below":0.95,"agent_retention_below":0.95},"max_recovery_rounds":2,"mixture":{"agentic_coding":0.35,"repository_coding":0.25,"reasoning":0.15,"long_context":0.10,"general":0.10,"quant_failure":0.05}}

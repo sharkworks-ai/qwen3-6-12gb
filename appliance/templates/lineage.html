@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block content %}
+<h1>Checkpoint lineage</h1><form method="get"><input name="candidate_id" value="{{candidate_id}}" placeholder="candidate id"><button>Load</button></form>
+{% if error %}<p class="bad">{{error}}</p>{% endif %}{% if payload %}<pre>{{payload}}</pre>{% endif %}
+{% endblock %}

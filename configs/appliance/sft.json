@@ -1,0 +1,18 @@
+{
+  "model": "Qwen/Qwen3.6-35B-A3B",
+  "dataset_name": "r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation",
+  "dataset_config": "canonical",
+  "dataset_split": "train",
+  "num_processes": 2,
+  "cuda_devices": "0,1",
+  "load_in_4bit": true,
+  "lora_rank": 32,
+  "expert_rank": 1,
+  "max_length": 16384,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "learning_rate": 2e-5,
+  "num_train_epochs": 1,
+  "assistant_only_loss": true,
+  "output_dir": "/data/checkpoints/qwen36-agent-sft"
+}

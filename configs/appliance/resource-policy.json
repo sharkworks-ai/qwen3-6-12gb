@@ -1,0 +1,8 @@
+{
+  "max_concurrent_jobs": 2,
+  "max_disk_gib": 1500,
+  "max_host_ram_gib": 256,
+  "max_gpu_temp_c": 88,
+  "max_gpu_power_w": null,
+  "reserve_disk_gib": 50
+}

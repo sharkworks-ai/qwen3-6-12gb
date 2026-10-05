@@ -1,0 +1,11 @@
+{
+  "backend": "bittern_catq",
+  "source_model": "/data/checkpoints/recovered-merged",
+  "output_dir": "/data/artifacts/quant/bittern-catq",
+  "calibration_file": "/data/datasets/calibration.txt",
+  "backend_config": {
+    "allow_experimental_qwen36": false,
+    "catq_entrypoint": null,
+    "catq_args": null
+  }
+}

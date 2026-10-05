@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block content %}
+<h1>Failure trajectories</h1><p class="muted">Agent/tool traces are stored under /data/artifacts/traces.</p>
+<ul>{% for trace in traces %}<li>{{trace.name}}</li>{% else %}<li>No failure traces yet.</li>{% endfor %}</ul>
+{% endblock %}

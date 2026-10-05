@@ -1,0 +1,16 @@
+{
+  "backend": "turboquant",
+  "source_model": "/data/checkpoints/recovered-merged",
+  "output_dir": "/data/artifacts/quant/turboquant-tq2",
+  "calibration_file": "/data/datasets/calibration.txt",
+  "backend_config": {
+    "weight_type": "TQ2_0",
+    "use_imatrix": true,
+    "imatrix_context": 512,
+    "imatrix_gpu_layers": 999,
+    "tensor_types": [],
+    "context": 262144,
+    "cache_k": "q8_0",
+    "cache_v": "turbo3"
+  }
+}

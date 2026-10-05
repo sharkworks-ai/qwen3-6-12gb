@@ -1,0 +1,16 @@
+{
+  "backend": "llama_cpp",
+  "source_model": "/data/checkpoints/recovered-merged",
+  "output_dir": "/data/artifacts/quant/llama-q3",
+  "calibration_file": "/data/datasets/calibration.txt",
+  "backend_config": {
+    "quant_type": "Q3_K_M",
+    "use_imatrix": true,
+    "imatrix_context": 512,
+    "imatrix_gpu_layers": 999,
+    "tensor_types": [],
+    "context": 262144,
+    "cache_k": "q4_0",
+    "cache_v": "q4_0"
+  }
+}

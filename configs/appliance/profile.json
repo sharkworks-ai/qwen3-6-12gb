@@ -1,0 +1,1 @@
+{"model":"Qwen/Qwen3.6-35B-A3B","dataset_name":"r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation","dataset_config":"canonical","dataset_split":"train","load_in_4bit":true,"max_samples":512,"max_length":8192,"output":"/data/artifacts/expert_profile.json"}

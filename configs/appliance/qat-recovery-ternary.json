@@ -1,0 +1,1 @@
+{"student_model":"/data/checkpoints/pruned-recovered","dataset":"/data/datasets/quant-recovery.jsonl","output_dir":"/data/checkpoints/qat-ternary-recovered","mode":"ternary_moe","num_processes":2,"max_length":8192,"batch_size":1,"gradient_accumulation_steps":8,"learning_rate":0.000003,"max_steps":300,"save_steps":100}

@@ -1,0 +1,66 @@
+{
+  "source_candidate": "tuned-reference",
+  "max_candidates": 64,
+  "hard_gates": {
+    "max_vram_mib": 11776,
+    "context_tokens": 262144,
+    "oxcoder_overall_wins": 6,
+    "oxcoder_coding_agentic_wins": 5,
+    "must_beat_swe": true,
+    "must_beat_terminal": true
+  },
+  "pruning": {
+    "retention": [
+      0.75,
+      0.625,
+      0.55,
+      0.5
+    ],
+    "profiles": [
+      "uniform",
+      "adaptive"
+    ]
+  },
+  "quantization": {
+    "backends": [
+      "llama_cpp",
+      "turboquant",
+      "bittern_catq"
+    ],
+    "expert_quants": [
+      "q4",
+      "q3",
+      "mixed_q3_q4",
+      "ternary"
+    ],
+    "kv_options": [
+      {
+        "k": "q4_0",
+        "v": "q4_0"
+      },
+      {
+        "k": "q8_0",
+        "v": "q8_0"
+      },
+      {
+        "k": "q8_0",
+        "v": "turbo3"
+      }
+    ]
+  },
+  "evaluation_tiers": [
+    "smoke",
+    "cheap",
+    "normal",
+    "expensive",
+    "finalist"
+  ],
+  "quant_recovery": {
+    "trigger_retention_below": 0.98,
+    "escalate_to_qat_below": 0.95,
+    "max_recovery_rounds": 2,
+    "requantize_after_recovery": true,
+    "reevaluate_after_requantize": true,
+    "failure_replay_fraction": 0.05
+  }
+}

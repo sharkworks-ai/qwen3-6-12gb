@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<h1>Candidates</h1><p class="muted">Pareto-frontier candidates are marked ★.</p>
+<table><tr><th></th><th>ID</th><th>Stage</th><th>Status</th><th>Runtime</th><th>Metrics</th></tr>
+{% for c in candidates %}<tr><td>{{"★" if c.candidate_id in frontier_ids else ""}}</td><td>{{c.candidate_id}}</td><td>{{c.stage}}</td><td>{{c.status}}</td><td>{{c.runtime or ""}}</td><td><pre>{{c.metrics}}</pre></td></tr>{% else %}<tr><td colspan="6">No candidates recorded yet.</td></tr>{% endfor %}
+</table>{% endblock %}
