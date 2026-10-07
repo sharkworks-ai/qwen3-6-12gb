@@ -1,0 +1,49 @@
+{% extends "base.html" %}{% block content %}
+<h1>12GB proof run</h1>
+<p>Run a miniature hybrid Qwen MoE through training, baseline evaluation, B and C, QAT, re-quantization and packed inference. A planned checkpoint interruption tests restart. Synthetic data tests the process; it does not establish coding quality.</p>
+<div class="grid"><section class="card"><h2>Single-GPU proof</h2>
+<p>Defaults build about 160M parameters. Short sequences keep the first test small. Native context remains 262144, but this run does not test that length.</p>
+<form method="post" action="/jobs/start" id="proof-form"><input type="hidden" name="kind" value="proof_run">
+<label><input type="checkbox" id="proof-resume"> Resume existing run</label>
+<textarea name="config_json" id="proof-config" rows="28" style="width:100%">{{ proof_defaults | tojson(indent=2) }}</textarea>
+<button class="primary">Run baseline + B + C</button></form>
+<p>Stage logs and checkpoints live under the configured output directory. Watch the Runs page, then open the report here. A failed memory or parity check remains visible even if all stages finish.</p>
+</section><section class="card"><h2>Full-model validation on 5090s</h2>
+<p>Use your merged checkpoint, real AYOT traces, recovery data and a separate held-out corpus. This workflow runs both compression pipelines and packed inference, then repeats long-context needle checks. It can be expensive.</p>
+<form method="post" action="/jobs/start"><input type="hidden" name="kind" value="full_validation">
+<textarea name="config_json" rows="28" style="width:100%">{{ validation_defaults | tojson(indent=2) }}</textarea>
+<button>Run full-model validation</button></form>
+<p>Baseline evaluation uses GPU/CPU offload. Packed inference uses one GPU. The eager packed runtime has bounded decode memory and does not have fused production kernels. Coding/tool benchmarks must run in isolated harnesses; import their results with artifact hashes and harness revisions.</p>
+</section></div>
+<div class="grid" style="margin-top:16px"><section class="card"><h2>Packed inference test</h2>
+<p>Generate text directly from an artifact. This does not execute generated tools or code. Stop any other GPU job first.</p>
+<form method="post" action="/jobs/start"><input type="hidden" name="kind" value="packed_inference">
+<textarea name="config_json" rows="10" style="width:100%">{
+  "bundle": "/data/artifacts/proof-12gb/aggressive-requantize/artifact",
+  "output_dir": "/data/artifacts/packed-generation",
+  "cuda_devices": "0", "device": "cuda:0",
+  "prompt": "User: add two numbers. Assistant:",
+  "max_new_tokens": 64, "chunk_rows": 128
+}</textarea><button>Generate from packed weights</button></form></section>
+<section class="card"><h2>Benchmark comparison</h2><p>Import external isolated-harness results after full validation. Synthetic proof models cannot pass these gates.</p>
+<form method="post" action="/jobs/start"><input type="hidden" name="kind" value="benchmark_compare">
+<textarea name="config_json" rows="6" style="width:100%">{
+  "output_dir": "/data/artifacts/full-validation",
+  "benchmark_results": "/data/datasets/benchmark-results.json"
+}</textarea><button>Compare benchmark results</button></form></section></div>
+<section class="card" style="margin-top:16px"><h2>Open a report</h2>
+<form method="get" action="/proof"><label>Output directory <input name="output_dir" value="{{ output_dir }}" style="width:420px"></label><button>Load report</button></form>
+{% if error %}<p class="bad">{{ error }}</p>{% endif %}
+{% if report %}
+<p>Status: <strong>{{ report.status }}</strong>. {% if report.synthetic %}Synthetic miniature test.{% else %}Full-model validation.{% endif %} Production runtime: {{ report.production_runtime }}.</p>
+{% if report.checks %}<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{% for name, value in report.checks.items() %}<tr><td>{{ name }}</td><td class="{{ 'good' if value else 'bad' }}">{{ 'Pass' if value else 'Not passed' }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+{% if report.variants %}<h3>Comparison</h3><table><thead><tr><th>Variant</th><th>Held-out loss</th><th>Loss change</th><th>Resident tensors</th><th>Packed inference peak</th></tr></thead><tbody>
+<tr><td>Baseline</td><td>{{ report.baseline.heldout_loss | round(4) }}</td><td>0</td><td>{{ (report.baseline.resident_tensor_bytes / 1048576) | round(1) }} MiB</td><td>{{ report.baseline.inference_peak_allocated_mib or 'Unmeasured' }}</td></tr>
+{% for name, variant in report.variants.items() %}{% set m = variant.after_qat if variant.after_qat is defined else variant.metrics %}<tr><td>{{ name }}</td><td>{{ m.heldout_loss | round(4) }}</td><td>{{ m.heldout_loss_delta | round(4) }}</td><td>{{ (m.resident_tensor_bytes / 1048576) | round(1) }} MiB</td><td>{{ m.inference_peak_allocated_mib or 'Unmeasured' }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+{% endif %}
+{% if progress %}<h3>Stages</h3><table><thead><tr><th>Stage</th><th>Status</th><th>Seconds</th><th>Peak device memory</th></tr></thead><tbody>{% for name, stage in progress.stages.items() %}<tr><td>{{ name }}</td><td>{{ stage.status }}</td><td>{{ (stage.seconds or 0) | round(1) }}</td><td>{{ stage.peak_vram_mib or 'Unmeasured' }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+{% if benchmarks %}<h3>Benchmark gates</h3><pre>{{ benchmarks | tojson(indent=2) }}</pre>{% endif %}
+{% if report %}<details><summary>Complete report</summary><pre>{{ report | tojson(indent=2) }}</pre></details>{% endif %}
+</section>
+<script>document.getElementById('proof-resume').addEventListener('change',e=>{try{const t=document.getElementById('proof-config');const c=JSON.parse(t.value);c.resume=e.target.checked;t.value=JSON.stringify(c,null,2);}catch(err){alert('Fix the JSON first.');}});</script>
+{% endblock %}

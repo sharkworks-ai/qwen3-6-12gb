@@ -17,6 +17,10 @@ class JobSpec:
 
 
 JOBS: dict[str, JobSpec] = {
+    "packed_inference": JobSpec("packed_inference", "Packed text generation", "Generate directly from mixed packed artifacts with bounded decode scratch.", "appliance.runtime.job"),
+    "benchmark_compare": JobSpec("benchmark_compare", "Benchmark comparison", "Check artifact-bound external benchmark scores against OxCoder gates.", "appliance.proof.benchmarks", gpu_required=False),
+    "proof_run": JobSpec("proof_run", "12GB miniature proof", "Single-GPU baseline/B/C, recovery, restart and packed inference checks.", "appliance.proof.job"),
+    "full_validation": JobSpec("full_validation", "Full-model validation", "B/C recovery pipelines, packed runtime and repeated long-context checks.", "appliance.proof.validation"),
     "upstream_reconstruction": JobSpec("upstream_reconstruction", "Pinned GSQ / CAT-Q sliding reconstruction", "GPTQ-initialized upstream GSQ with CAT-Q grid adaptation and overlapping window targets.", "appliance.quant.window_job"),
     "mixed_quant": JobSpec("mixed_quant", "Mixed GSQ / AYOT ternary", "Experimental B/C reconstruction with saved tensor precision maps.", "appliance.quant.mixed_job"),
     "mixed_pipeline": JobSpec("mixed_pipeline", "B/C compression pipeline", "Reconstruction, selective QAT recovery and re-quantization.", "appliance.quant.pipeline"),

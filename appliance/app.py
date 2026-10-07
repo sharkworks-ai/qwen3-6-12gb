@@ -5,15 +5,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from appliance.api.router import router as api_router
 from appliance.core import (
-    Auth,
-    ApplianceDB,
     JOBS,
+    ApplianceDB,
+    Auth,
     JobManager,
     Settings,
     gpu_info,
@@ -23,13 +23,16 @@ from appliance.datasets.contamination import flag_overlaps
 from appliance.datasets.manifest import write_manifest
 from appliance.db_ext import WorkbenchDB
 from appliance.lineage.graph import graph as lineage_graph
+from appliance.proof.config import defaults as proof_defaults
+from appliance.proof.config import validate as validate_proof
+from appliance.proof.config import validation_defaults
 from appliance.publish import push_github, push_huggingface
+from appliance.quant.precision import validate as validate_precision
+from appliance.quant.presets import preset
 from appliance.runtime.matrix import runtime_matrix
 from appliance.search.pareto import frontier
 from appliance.search.release_search import ReleaseSearch, ReleaseSearchConfig
-from appliance.quant.presets import preset
-from appliance.quant.precision import validate as validate_precision
-
+from appliance.stages.common import data_path
 
 settings = Settings.from_env()
 settings.ensure_dirs()
@@ -166,6 +169,15 @@ def start_job(kind: str = Form(...), config_json: str = Form("{}")):
         config = json.loads(config_json or "{}")
         if not isinstance(config, dict):
             raise ValueError("Config must be a JSON object")
+        if kind == "proof_run":
+            config = {**proof_defaults(), **config}
+            if config.get("cpu_test") or not str(config["device"]).startswith("cuda:"):
+                raise ValueError("Web proof runs require CUDA")
+            validate_proof(config)
+            data_path(config["output_dir"], str(settings.data_root))
+        if kind == "full_validation":
+            config = {**validation_defaults(), **config}
+            data_path(config["output_dir"], str(settings.data_root))
         if kind in {"mixed_quant", "mixed_pipeline"}:
             validate_precision(config)
             if kind == "mixed_pipeline" and config["preset"] == "extreme":
@@ -183,6 +195,28 @@ def compression_page(request: Request):
     return templates.TemplateResponse(
         request=request, name="compression.html",
         context={"presets": {name: preset(name) for name in ("aggressive", "extreme")}},
+    )
+
+
+@app.get("/proof", response_class=HTMLResponse)
+def proof_page(request: Request, output_dir: str = "/data/artifacts/proof-12gb"):
+    report = progress = error = benchmarks = None
+    try:
+        directory = data_path(output_dir, str(settings.data_root))
+        if (directory / "report.json").is_file():
+            report = json.loads((directory / "report.json").read_text())
+        if (directory / "proof-progress.json").is_file():
+            progress = json.loads((directory / "proof-progress.json").read_text())
+        if (directory / "benchmark-report.json").is_file():
+            benchmarks = json.loads((directory / "benchmark-report.json").read_text())
+        if not report and not progress:
+            error = "No report yet. Start a run or enter its output directory."
+    except (ValueError, OSError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request=request, name="proof.html",
+        context={"proof_defaults": proof_defaults(), "validation_defaults": validation_defaults(),
+                 "output_dir": output_dir, "report": report, "progress": progress, "error": error, "benchmarks": benchmarks},
     )
 
 

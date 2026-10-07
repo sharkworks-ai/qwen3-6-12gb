@@ -96,6 +96,11 @@ Ternary stores five base-3 codes per byte: 1.6 stored bits per code plus scales.
 INT2/3/4 use packed scalar codes. Packed bytes exclude unquantized tensors,
 KV cache, workspace and runtime overhead.
 
+A bounded eager runtime can now read this format directly. Use **12GB proof**
+for comparisons and packed text generation. It replaces quantized projections
+without loading their BF16 copies and decodes only active routed experts in row
+chunks. See [proof-run and runtime details](PROOF_RUN.md).
+
 There is no production kernel or GGUF/vLLM export for this mixed packed format.
 Manifests set `runtime_ready=false`. `research-hf` uses BF16 storage for evaluation
 and recovery. The existing GGUF quantizer changes the representation and is a

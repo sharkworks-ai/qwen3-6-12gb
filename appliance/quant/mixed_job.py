@@ -53,7 +53,11 @@ def prepare(cfg: dict) -> tuple[Path, Path, dict, dict]:
         raise FileNotFoundError(calibration)
     if cfg["preset"] == "extreme":
         metadata = json.loads(calibration.with_suffix(".manifest.json").read_text())
-        if metadata.get("kind") != "ayot" or metadata.get("teacher_model") != str(
+        synthetic = cfg.get("proof_mode") and config.get("qwen12g_proof_model") is True
+        if synthetic:
+            if metadata.get("kind") != "synthetic_proof_fixture":
+                raise ValueError("Proof mode requires explicitly synthetic fixtures")
+        elif metadata.get("kind") != "ayot" or metadata.get("teacher_model") != str(
             cfg.get("teacher_model", model)
         ):
             raise ValueError("Extreme requires AYOT traces from the source checkpoint")

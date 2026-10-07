@@ -1,0 +1,21 @@
+{
+  "output_dir": "/data/artifacts/proof-12gb",
+  "cuda_devices": "0",
+  "device": "cuda:0",
+  "seed": 42,
+  "resume": false,
+  "hidden_size": 512,
+  "layers": 8,
+  "experts": 16,
+  "top_k": 2,
+  "expert_width": 768,
+  "sequence_length": 128,
+  "samples": 8,
+  "train_steps": 20,
+  "reconstruct_steps": 10,
+  "qat_steps": 10,
+  "checkpoint_steps": 5,
+  "learning_rate": 0.0003,
+  "chunk_rows": 128,
+  "vram_limit_gib": 11.5
+}

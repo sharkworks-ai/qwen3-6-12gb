@@ -114,6 +114,14 @@ correction, AYOT traces and selective QAT recovery. C is a ScaleQ-inspired
 adaptation. Production mixed-format inference/export remains unfinished.
 See [mixed compression details](docs/MIXED_COMPRESSION.md) before launching.
 
+## 12GB proof run
+
+Open **12GB proof** in the web UI to generate a miniature hybrid MoE, run short
+training and baseline/B/C comparisons, exercise recovery and checkpoint restart,
+and evaluate packed inference. Reports distinguish synthetic CPU/process tests
+from measured GPU checks. The same page offers packed text generation and the
+full-model validation workflow. See [proof-run instructions](docs/PROOF_RUN.md).
+
 ## Dataset note
 
 The proposed `r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation` dataset is useful for research, but its upstream provenance and licensing must be reviewed before any commercial redistribution or use. Keep dataset manifests and provenance with every training run.

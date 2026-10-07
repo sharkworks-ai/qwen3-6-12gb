@@ -252,6 +252,13 @@ def _run(cfg):
                 if active is not None and active != checkpoint:
                     active.unlink(missing_ok=True)
                 active = checkpoint
+                if (
+                    cfg.get("proof_mode")
+                    and start == 0
+                    and step + 1 == cfg.get("proof_interrupt_step")
+                    and first_step == 0
+                ):
+                    raise RuntimeError("PROOF_CHECKPOINT_INTERRUPTION")
         for q in quantizers.values():
             q.eval()
         # Commit only the advancing prefix; overlapping blocks train again.
@@ -334,6 +341,10 @@ def _run(cfg):
         "upstream_scaleq_reproduction": False,
         "tensors": state["completed"],
         "native_context_target": 262144,
+        "synthetic_proof": bool(cfg.get("proof_mode")),
+        "research_files": {
+            p.name: file_hash(p) for p in research.iterdir() if p.is_file()
+        },
     }
     save_json(output / "mixed-manifest.json", manifest)
     state["status"] = "succeeded"

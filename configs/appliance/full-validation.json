@@ -1,0 +1,42 @@
+{
+  "output_dir": "/data/artifacts/full-validation",
+  "source_model": "/data/checkpoints/qwen36-merged",
+  "calibration_file": "/data/datasets/calibration.jsonl",
+  "ayot_file": "/data/datasets/ayot.jsonl",
+  "recovery_dataset": "/data/datasets/recovery.jsonl",
+  "heldout_file": "/data/datasets/heldout.jsonl",
+  "cuda_devices": "0,1",
+  "device": "cuda:0",
+  "window_devices": [
+    "cuda:0",
+    "cuda:1"
+  ],
+  "runtime_device": "cuda:0",
+  "resume": false,
+  "steps": 100,
+  "max_samples": 128,
+  "calibration_length": 2048,
+  "eval_length": 512,
+  "eval_samples": 8,
+  "max_memory": {
+    "0": "28GiB",
+    "1": "28GiB",
+    "cpu": "80GiB"
+  },
+  "context_lengths": [
+    32768,
+    65536,
+    131072,
+    200000,
+    250000
+  ],
+  "context_repeats": 5,
+  "max_new_tokens": 8192,
+  "recovery": {
+    "num_processes": 2,
+    "max_steps": 200,
+    "save_steps": 50
+  },
+  "benchmark_results": "",
+  "vram_limit_gib": 11.5
+}
