@@ -51,11 +51,17 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "resume": resume,
     }
     if goal == "proof":
+        size = str(answers.get("proof_size", "standard"))
+        if size not in {"laptop", "standard"}:
+            raise ValueError("Choose laptop or standard proof size")
         if count != 1:
             raise ValueError("Miniature proof uses one GPU")
         cfg = {
             **defaults(),
             **common,
+            "layers": 5 if size == "laptop" else defaults()["layers"],
+            "sequence_length": 64 if size == "laptop" else defaults()["sequence_length"],
+            "samples": 2 if size == "laptop" else defaults()["samples"],
             "vram_limit_gib": limit,
             "train_steps": integer(answers, "train_steps", 20, 1, 100000),
             "reconstruct_steps": integer(answers, "quant_steps", 10, 2, 10000),

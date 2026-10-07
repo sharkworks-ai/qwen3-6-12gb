@@ -104,7 +104,9 @@ def _run(cfg):
     model = (
         AutoModelForCausalLM.from_pretrained(
             str(model_path),
-            dtype=torch.bfloat16,
+            dtype={"float32": torch.float32, "bfloat16": torch.bfloat16}[
+                cfg.get("compute_dtype", "bfloat16")
+            ],
             low_cpu_mem_usage=True,
             trust_remote_code=False,
             attn_implementation="eager",
@@ -342,9 +344,7 @@ def _run(cfg):
         "tensors": state["completed"],
         "native_context_target": 262144,
         "synthetic_proof": bool(cfg.get("proof_mode")),
-        "research_files": {
-            p.name: file_hash(p) for p in research.iterdir() if p.is_file()
-        },
+        "research_files": {p.name: file_hash(p) for p in research.iterdir() if p.is_file()},
     }
     save_json(output / "mixed-manifest.json", manifest)
     state["status"] = "succeeded"

@@ -6,6 +6,7 @@ import argparse
 import os
 from importlib.metadata import version
 
+from appliance.proof.compute import compute_dtype
 from appliance.proof.config import defaults, validate
 from appliance.proof.state import Stages, implementation_digest
 from appliance.quant.locking import exclusive
@@ -18,6 +19,7 @@ from appliance.stages.common import data_path, load_config, save_json
 def run(cfg):
     cfg = {**defaults(), **cfg}
     validate(cfg)
+    cfg["compute_dtype"] = str(compute_dtype(cfg)).removeprefix("torch.")
     root = os.environ.get("QWEN12G_DATA_ROOT", "/data")
     output = data_path(cfg["output_dir"], root)
     with exclusive(output / ".proof.lock"):
@@ -57,6 +59,7 @@ def _run(cfg, output):
             "output_dir": str(first),
             "calibration_file": str(data / "calibration.jsonl"),
             "proof_mode": True,
+            "compute_dtype": cfg["compute_dtype"],
             "proof_interrupt_step": 1,
             "device": cfg["device"],
             "window_devices": [cfg["device"]],
@@ -120,6 +123,7 @@ def _run(cfg, output):
         "status": "completed",
         "identity": identity,
         "model": generated,
+        "compute_dtype": cfg["compute_dtype"],
         "baseline": baseline,
         "variants": variants,
         "stages": stage_items,

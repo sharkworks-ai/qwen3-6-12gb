@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from appliance.proof.compute import compute_dtype
 from appliance.qat.parametrize import apply_precision_map, remove_fake_quant
 
 
@@ -14,7 +15,7 @@ def train(cfg, source, output, *, precision=None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     device = cfg["device"]
-    dtype = torch.float32 if device == "cpu" else torch.bfloat16
+    dtype = compute_dtype(cfg)
     torch.manual_seed(int(cfg["seed"]))
     model = AutoModelForCausalLM.from_pretrained(
         source, dtype=dtype, attn_implementation="eager", trust_remote_code=False
@@ -24,7 +25,7 @@ def train(cfg, source, output, *, precision=None):
     if precision is not None:
         apply_precision_map(model, json.loads(Path(precision).read_text()))
     model.train()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg["learning_rate"]))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg["learning_rate"]), foreach=False)
     rows = [
         json.loads(line)["text"]
         for line in Path(cfg["training_file"]).read_text().splitlines()

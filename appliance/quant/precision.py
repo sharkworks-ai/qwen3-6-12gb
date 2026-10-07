@@ -33,6 +33,8 @@ def tensor_spec(name: str, cfg: dict) -> dict | None:
 
 
 def validate(cfg: dict) -> None:
+    if cfg.get("compute_dtype", "bfloat16") not in {"float32", "bfloat16"}:
+        raise ValueError("Reconstruction compute_dtype must be float32 or bfloat16")
     if cfg.get("engine", "reference") not in {"reference", "upstream_window"}:
         raise ValueError("Unknown reconstruction engine")
     if int(cfg.get("checkpoint_steps", 25)) < 1:

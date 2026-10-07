@@ -3,6 +3,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
 ARG GIT_COMMIT=unknown
 ARG LLAMA_CPP_REF=master
+ARG LLAMA_CUDA_ARCHITECTURES="75;86;89;120"
+ARG BUILD_JOBS=2
 ARG GSQ_REF=03fc16484c369e3127225615d5e03e8d3a6043e3
 ARG CATQ_REF=5a8fcd4f7e0366554b732d300a37e6ea467c3c35
 LABEL org.opencontainers.image.source="https://github.com/taylorelley/qwen3.6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
@@ -15,8 +17,8 @@ RUN python3 -m pip install --break-system-packages \
   "fastapi>=0.115" "uvicorn[standard]>=0.34" "jinja2>=3.1" "python-multipart>=0.0.18" "itsdangerous>=2.2" \
   "huggingface_hub>=0.27" "httpx>=0.28" "PyYAML>=6.0" "pydantic>=2.9" "psutil>=6.0" "rich>=13.9" "typer>=0.12"
 RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp /opt/llama.cpp && \
-    cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build /opt/llama.cpp/build --config Release -j$(nproc) --target llama-quantize llama-imatrix llama-cli llama-server
+    cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${LLAMA_CUDA_ARCHITECTURES}" && \
+    cmake --build /opt/llama.cpp/build --config Release -j${BUILD_JOBS} --target llama-quantize llama-imatrix llama-cli llama-server
 WORKDIR /app
 RUN git clone https://github.com/IST-DASLab/GSQ /opt/GSQ && git -C /opt/GSQ checkout --detach ${GSQ_REF} && \
     git clone https://github.com/IntelChina-AI/BitTern /opt/BitTern && git -C /opt/BitTern checkout --detach ${CATQ_REF} && \

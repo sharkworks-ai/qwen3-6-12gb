@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from appliance.proof.compute import compute_dtype
 from appliance.runtime.packed import load_packed
 
 
@@ -14,7 +15,7 @@ from appliance.runtime.packed import load_packed
 def evaluate(cfg, source, *, bundle=None, baseline=None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    dtype = torch.float32 if cfg["device"] == "cpu" else torch.bfloat16
+    dtype = compute_dtype(cfg)
     tokenizer = AutoTokenizer.from_pretrained(source, trust_remote_code=False)
     if cfg["device"] != "cpu":
         torch.cuda.reset_peak_memory_stats(cfg["device"])

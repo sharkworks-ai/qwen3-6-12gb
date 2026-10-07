@@ -9,6 +9,7 @@ def defaults():
         "cuda_devices": "0",
         "device": "cuda:0",
         "seed": 42,
+        "compute_dtype": "auto",
         "resume": False,
         "hidden_size": 512,
         "layers": 8,
@@ -28,6 +29,8 @@ def defaults():
 
 
 def validate(cfg):
+    if cfg.get("compute_dtype", "auto") not in {"auto", "float32", "bfloat16"}:
+        raise ValueError("Proof compute_dtype must be auto, float32 or bfloat16")
     if cfg["device"] != "cpu" and (
         cfg["device"] != "cuda:0" or not str(cfg["cuda_devices"]).isdigit()
     ):

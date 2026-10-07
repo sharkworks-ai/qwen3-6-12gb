@@ -1,6 +1,6 @@
 # 12GB proof run and packed inference
 
-Open **12GB proof** in the container web UI. The default single-GPU run creates
+Open **Reports & tests** in the container web UI. The default single-GPU run creates
 about 160M parameters from scratch with a byte tokenizer. It uses the target
 family's hybrid linear/full attention, routed expert banks and shared experts.
 It retains a 262144-token configuration while testing short sequences.
@@ -98,3 +98,36 @@ re-running training or changing the completed workflow identity.
 Open the report by entering its output directory on the proof page. Equivalent
 CLI commands are `python -m appliance.proof.job --config CONFIG.json` and
 `python -m appliance.proof.validation --config CONFIG.json`.
+
+## 4GB NVIDIA laptop test
+
+In **New run**, choose **Test the workflow on one GPU**, select GPU 0, and
+choose **Laptop** under **Small test model size**. This creates a roughly 100M
+parameter hybrid MoE with five layers, 64-token examples and two calibration
+records. Set the memory pass/fail target to **3.0 GiB** on a 4GB display GPU.
+Use 5 initial updates, 2 weight-fitting updates and 2 recovery updates for the
+first run. A memory target is a report gate, not an allocation cap. Fit still
+needs to be measured on the actual GPU.
+
+Proof arithmetic is selected once and recorded in the run configuration:
+BF16 on CUDA devices with native support, FP32 on older devices such as the
+T1200. FP32 uses more memory and can run slowly. The same precision is used
+for bootstrap, reconstruction, recovery and packed/export comparison. It does
+not change the stored quantization bit widths. Full-model workflows retain
+their existing BF16 requirements.
+
+From the repository checkout, start the UI locally:
+
+```bash
+export QWEN12G_WEB_TOKEN="$(openssl rand -hex 24)"
+export QWEN12G_PORT="127.0.0.1:8080"
+export QWEN12G_CUDA_ARCHITECTURES="75"
+export QWEN12G_BUILD_JOBS="2"
+docker compose -f appliance/compose.yml up -d --build
+printf 'Web UI login token: %s\n' "$QWEN12G_WEB_TOKEN"
+```
+
+Open `http://localhost:8080`. Keep the token locally. Architecture 75 is for
+the Turing laptop; rebuild with the default architecture list for another
+GPU host. Compilation is limited to two jobs by default to reduce host RAM
+pressure. A complete image build can still need substantial disk space.
