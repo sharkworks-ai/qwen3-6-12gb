@@ -18,6 +18,7 @@ def evaluate(cfg, source, *, bundle=None, baseline=None):
     dtype = compute_dtype(cfg)
     tokenizer = AutoTokenizer.from_pretrained(source, trust_remote_code=False)
     if cfg["device"] != "cpu":
+        torch.cuda.init()
         torch.cuda.reset_peak_memory_stats(cfg["device"])
     if bundle:
         model = load_packed(bundle, device=cfg["device"], dtype=dtype, chunk_rows=cfg["chunk_rows"])

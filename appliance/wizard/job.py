@@ -120,7 +120,7 @@ def run(cfg):
                     "num_processes": len(config["window_devices"]),
                     "resume": config["resume"],
                     "save_steps": 50,
-                    "load_in_4bit": True,
+                    "load_in_4bit": config.get("load_in_4bit", True),
                     "trust_remote_code": False,
                 }
                 stage("sft", "sft", training)
@@ -138,6 +138,7 @@ def run(cfg):
                     "profile",
                     {
                         "model": source,
+                        "load_in_4bit": config.get("load_in_4bit", True),
                         "dataset_path": config["calibration_file"],
                         "output": str(profile_path),
                         "max_samples": config["max_samples"],

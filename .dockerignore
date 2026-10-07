@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+**/__pycache__
+.pytest_cache
+.venv
+venv
+runs
+artifacts
+models
+checkpoints
+**/*.log

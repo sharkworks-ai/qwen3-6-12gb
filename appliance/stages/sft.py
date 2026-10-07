@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from appliance.gpu import compute_dtype, require_kbit_support
 from appliance.stages.common import load_config, resolve_model_source, save_json
 from appliance.stages.dataset_io import load_training_dataset, maybe_limit
 
@@ -65,17 +66,18 @@ def main() -> None:
 
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     quantization_config = None
+    require_kbit_support(config.get("load_in_4bit", True))
     if config.get("load_in_4bit", True):
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type=config.get("bnb_quant_type", "nf4"),
             bnb_4bit_use_double_quant=bool(config.get("double_quant", True)),
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=compute_dtype(),
         )
 
     model = AutoModelForImageTextToText.from_pretrained(
         model_source,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=compute_dtype(),
         quantization_config=quantization_config,
         device_map={"": local_rank} if torch.cuda.is_available() else None,
         trust_remote_code=bool(config.get("trust_remote_code", False)),
@@ -108,8 +110,8 @@ def main() -> None:
         logging_steps=int(config.get("logging_steps", 5)),
         save_steps=int(config.get("save_steps", 100)),
         save_total_limit=int(config.get("save_total_limit", 3)),
-        bf16=True,
-        tf32=bool(config.get("tf32", True)),
+        bf16=compute_dtype() == torch.bfloat16,
+        tf32=bool(config.get("tf32", True)) and not bool(torch.version.hip),
         gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
         gradient_checkpointing_kwargs={"use_reentrant": False},
         packing=bool(config.get("packing", False)),

@@ -12,6 +12,8 @@ import math
 from pathlib import Path
 
 import torch
+
+from appliance.gpu import compute_dtype
 from safetensors import safe_open
 from safetensors.torch import load_file
 
@@ -118,11 +120,12 @@ class PackedExperts(torch.nn.Module):
         return result
 
 
-def load_packed(bundle, *, device="cuda:0", dtype=torch.bfloat16, chunk_rows=128):
+def load_packed(bundle, *, device="cuda:0", dtype=None, chunk_rows=128):
     """Build on meta; never load quantized BF16 parameters from research shards."""
     from accelerate import init_empty_weights
     from transformers import AutoConfig, AutoModelForCausalLM
 
+    dtype = compute_dtype(device) if dtype is None else dtype
     bundle = Path(bundle).resolve()
     manifest = json.loads((bundle / "mixed-manifest.json").read_text())
     if manifest.get("status") != "succeeded" or not manifest.get("tensors"):

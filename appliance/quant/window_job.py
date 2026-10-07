@@ -13,6 +13,7 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch.func import functional_call
 
+from appliance.gpu import compute_dtype
 from appliance.quant.locking import exclusive
 from appliance.quant.mixed_job import file_hash, prepare
 from appliance.quant.precision import build_map, digest
@@ -72,7 +73,7 @@ def _run(cfg):
     if cfg.get("dry_run"):
         return {"status": "planned", "plan": str(output / "window-plan.json")}
     if str(cfg.get("device", "cuda:0")).startswith("cpu") and not cfg.get("cpu_test"):
-        raise ValueError("GSQ's pinned autograd implementation requires CUDA")
+        raise ValueError("GSQ's pinned autograd implementation requires NVIDIA CUDA or AMD ROCm")
     from lion_pytorch import Lion
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -104,9 +105,11 @@ def _run(cfg):
     model = (
         AutoModelForCausalLM.from_pretrained(
             str(model_path),
-            dtype={"float32": torch.float32, "bfloat16": torch.bfloat16}[
-                cfg.get("compute_dtype", "bfloat16")
-            ],
+            dtype=(
+                {"float32": torch.float32, "bfloat16": torch.bfloat16}[cfg["compute_dtype"]]
+                if "compute_dtype" in cfg
+                else compute_dtype(cfg.get("device", "cuda:0"))
+            ),
             low_cpu_mem_usage=True,
             trust_remote_code=False,
             attn_implementation="eager",

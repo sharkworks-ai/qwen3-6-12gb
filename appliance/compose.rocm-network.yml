@@ -1,0 +1,33 @@
+# Merge with compose.rocm.yml after mounting the shared runtime and data directory.
+services:
+  qwen12g:
+    build:
+      dockerfile: appliance/Dockerfile.rocm-network
+    image: qwen12g-appliance:rocm-network
+    volumes:
+      - type: bind
+        source: ${QWEN12G_SHARED_ROOT:?set the mounted shared directory}/data
+        target: /data
+        bind:
+          create_host_path: false
+      - qwen12g-db:/data/db
+      - type: bind
+        source: ${QWEN12G_VENV_ROOT:-${QWEN12G_SHARED_ROOT}/runtime/venv}
+        target: /opt/venv
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QWEN12G_SHARED_ROOT}/runtime/rocm-7.2.0
+        target: /opt/rocm-7.2.0
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QWEN12G_SHARED_ROOT}/runtime/llama.cpp
+        target: /opt/llama.cpp
+        read_only: true
+        bind:
+          create_host_path: false
+volumes:
+  qwen12g-db:

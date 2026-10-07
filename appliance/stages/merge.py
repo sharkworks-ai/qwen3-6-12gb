@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from appliance.gpu import compute_dtype
 from appliance.stages.common import load_config, resolve_model_source, save_json
 
 
@@ -23,14 +24,13 @@ def main() -> None:
         print(json.dumps({"dry_run": True, "base": base, "adapter": str(adapter), "output": str(output)}))
         return
 
-    import torch
     from peft import PeftModel
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     token = os.environ.get("HF_TOKEN") or None
     model = AutoModelForImageTextToText.from_pretrained(
         base,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=compute_dtype(),
         device_map="auto",
         low_cpu_mem_usage=True,
         token=token,

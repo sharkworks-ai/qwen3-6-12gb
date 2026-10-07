@@ -144,6 +144,7 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "source_model": str(source),
         "variants": variants,
         "goal": goal,
+        "load_in_4bit": answers.get("load_in_4bit", os.environ.get("QWEN12G_GPU_BACKEND") != "rocm") is True,
         "keep_experts": keep,
         "benchmark_profile": profile,
         "vram_limit_gib": limit,

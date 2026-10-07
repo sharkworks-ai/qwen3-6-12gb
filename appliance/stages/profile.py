@@ -6,6 +6,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
+from appliance.gpu import compute_dtype, require_kbit_support
 from appliance.stages.common import load_config, resolve_model_source, save_json
 from appliance.stages.dataset_io import load_training_dataset, maybe_limit
 
@@ -43,16 +44,17 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     quant = None
+    require_kbit_support(config.get("load_in_4bit", True))
     if config.get("load_in_4bit", True):
         quant = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=compute_dtype(),
         )
 
     model = AutoModelForImageTextToText.from_pretrained(
         model_source,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=compute_dtype(),
         quantization_config=quant,
         device_map="auto",
         token=os.environ.get("HF_TOKEN") or None,

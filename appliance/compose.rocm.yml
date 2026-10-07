@@ -1,0 +1,34 @@
+# Standalone alternative to compose.yml; do not merge the GPU device requests.
+services:
+  qwen12g:
+    build:
+      context: ..
+      dockerfile: appliance/Dockerfile.rocm
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+        AMDGPU_TARGETS: ${AMDGPU_TARGETS:-gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201}
+        BUILD_JOBS: ${BUILD_JOBS:-4}
+    image: qwen12g-appliance:rocm
+    container_name: qwen12g
+    restart: unless-stopped
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${AMD_VIDEO_GID:?set AMD_VIDEO_GID to the host video group ID}"
+      - "${AMD_RENDER_GID:?set AMD_RENDER_GID to the host render group ID}"
+    shm_size: "8gb"
+    ports:
+      - "${QWEN12G_BIND:-127.0.0.1}:${QWEN12G_PORT:-8080}:8080"
+    environment:
+      QWEN12G_WEB_TOKEN: ${QWEN12G_WEB_TOKEN:?set QWEN12G_WEB_TOKEN}
+      QWEN12G_GPU_BACKEND: rocm
+      QWEN12G_DATA_ROOT: /data
+      QWEN12G_SECURE_COOKIE: ${QWEN12G_SECURE_COOKIE:-0}
+      HF_HOME: /data/hf-cache
+      HF_TOKEN: ${HF_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - qwen12g-data:/data
+volumes:
+  qwen12g-data:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from appliance.gpu import compute_dtype
+
 
 def collect_moments(model_path: Path, calibration: Path, precision: dict, cfg: dict, output: Path):
     import torch
@@ -14,7 +16,7 @@ def collect_moments(model_path: Path, calibration: Path, precision: dict, cfg: d
 
     model = AutoModelForCausalLM.from_pretrained(
         str(model_path),
-        dtype=torch.bfloat16,
+        dtype=compute_dtype(cfg.get("device", "cuda:0")),
         device_map="auto",
         max_memory=cfg.get("max_memory"),
         trust_remote_code=False,

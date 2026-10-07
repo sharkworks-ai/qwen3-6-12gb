@@ -23,7 +23,8 @@ def run(cfg):
         raise ValueError("Runtime output must be separate from its artifact")
     device = cfg.get("device", "cuda:0")
     if not device.startswith("cuda:") or not torch.cuda.is_available():
-        raise ValueError("Packed inference job requires CUDA")
+        raise ValueError("Packed inference job requires NVIDIA CUDA or AMD ROCm")
+    torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(device)
     started = time.monotonic()
     model = load_packed(bundle, device=device, chunk_rows=int(cfg.get("chunk_rows", 128)))

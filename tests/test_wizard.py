@@ -355,3 +355,11 @@ def test_b_only_validation_requires_physical_memory_evidence(monkeypatch, tmp_pa
     measured["peak"] = None
     report = validation.run(config)
     assert report["checks"]["within_vram_limit"] is False
+
+
+def test_rocm_plan_avoids_nvidia_only_kbit_default(tmp_path, monkeypatch):
+    answers = real_answers(tmp_path)
+    monkeypatch.setenv("QWEN12G_GPU_BACKEND", "rocm")
+    assert compile_plan(answers, str(tmp_path))["config"]["load_in_4bit"] is False
+    monkeypatch.setenv("QWEN12G_GPU_BACKEND", "cuda")
+    assert compile_plan(answers, str(tmp_path))["config"]["load_in_4bit"] is True

@@ -14,6 +14,8 @@ from appliance.stages.common import save_json
 from appliance.quant.precision import digest
 from transformers.trainer_utils import get_last_checkpoint
 import os
+import torch
+from appliance.gpu import compute_dtype
 
 
 def main():
@@ -22,7 +24,7 @@ def main():
     a = p.parse_args()
     cfg = json.loads(Path(a.config).read_text())
     model = AutoModelForCausalLM.from_pretrained(
-        cfg["student_model"], torch_dtype="bfloat16", trust_remote_code=True, low_cpu_mem_usage=True
+        cfg["student_model"], torch_dtype=compute_dtype(), trust_remote_code=True, low_cpu_mem_usage=True
     )
     precision = (
         json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
@@ -57,7 +59,7 @@ def main():
         gradient_accumulation_steps=int(cfg.get("gradient_accumulation_steps", 8)),
         learning_rate=float(cfg.get("learning_rate", 5e-6)),
         max_steps=int(cfg.get("max_steps", 200)),
-        bf16=True,
+        bf16=compute_dtype() == torch.bfloat16,
         logging_steps=1,
         save_steps=int(cfg.get("save_steps", 100)),
         report_to=[],

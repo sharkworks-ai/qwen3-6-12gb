@@ -24,7 +24,7 @@ def execute(cfg):
         torch.cuda.set_rng_state = lambda state, **k: torch.set_rng_state(state)
         torch.random.fork_rng = lambda **k: original_fork(devices=[])
     elif not torch.cuda.is_available():
-        raise ValueError("CUDA GPU unavailable")
+        raise ValueError("GPU unavailable: check the NVIDIA CUDA or AMD ROCm runtime")
     if operation == "generate":
         from appliance.proof.model import generate
 

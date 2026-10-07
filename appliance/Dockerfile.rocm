@@ -1,0 +1,35 @@
+# Separate ROCm runtime: the NVIDIA image remains appliance/Dockerfile.
+ARG ROCM_IMAGE=rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.9.1
+FROM ${ROCM_IMAGE}
+ARG DEBIAN_FRONTEND=noninteractive
+ARG GIT_COMMIT=unknown
+ARG LLAMA_CPP_REF=master
+ARG AMDGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
+ARG BUILD_JOBS=4
+ARG GSQ_REF=03fc16484c369e3127225615d5e03e8d3a6043e3
+ARG CATQ_REF=5a8fcd4f7e0366554b732d300a37e6ea467c3c35
+LABEL org.opencontainers.image.source="https://github.com/taylorelley/qwen3-6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config openssh-client rsync tini && rm -rf /var/lib/apt/lists/*
+# Preserve the image's HIP-enabled torch/vision/audio versions during resolution.
+RUN python3 -c 'from importlib.metadata import version; from pathlib import Path; Path("/opt/rocm-constraints.txt").write_text("".join(f"{n}=={version(n)}\n" for n in ("torch", "torchvision", "torchaudio", "triton")))' && \
+    python3 -m pip install --no-cache-dir -c /opt/rocm-constraints.txt \
+    'transformers>=5.17.0' 'peft>=0.18.0' 'trl>=1.14.0' 'accelerate>=1.10.0' \
+    'datasets>=4.0.0' 'safetensors>=0.5.0' 'sentencepiece>=0.2' 'protobuf>=5' \
+    'fastapi>=0.115' 'uvicorn[standard]>=0.34' 'jinja2>=3.1' 'python-multipart>=0.0.18' 'itsdangerous>=2.2' \
+    'huggingface_hub>=0.27' 'httpx>=0.28' 'PyYAML>=6.0' 'pydantic>=2.9' 'psutil>=6.0' 'rich>=13.9' 'typer>=0.12' 'cryptography>=44' lion-pytorch==0.2.5 && \
+    python3 -c 'import torch; assert torch.version.hip, "ROCm torch was replaced"'
+RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp /opt/llama.cpp && \
+    cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_HIP=ON -DAMDGPU_TARGETS="${AMDGPU_TARGETS}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ && \
+    cmake --build /opt/llama.cpp/build --config Release -j${BUILD_JOBS} --target llama-quantize llama-imatrix llama-cli llama-server
+RUN git clone https://github.com/IST-DASLab/GSQ /opt/GSQ && git -C /opt/GSQ checkout --detach ${GSQ_REF} && \
+    git clone https://github.com/IntelChina-AI/BitTern /opt/BitTern && git -C /opt/BitTern checkout --detach ${CATQ_REF}
+WORKDIR /app
+COPY . /app
+RUN python3 -m pip install --no-cache-dir -c /opt/rocm-constraints.txt -e . && \
+    useradd --create-home --uid 10001 appliance && mkdir -p /data && chown -R appliance:appliance /data /app /opt/GSQ /opt/BitTern
+USER appliance
+ENV QWEN12G_GPU_BACKEND=rocm QWEN12G_DATA_ROOT=/data HF_HOME=/data/hf-cache PYTHONUNBUFFERED=1 PYTHONPATH=/app TOKENIZERS_PARALLELISM=false
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini","--"]
+CMD ["python3","-m","appliance.app"]

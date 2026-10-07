@@ -236,7 +236,7 @@ def start_job(kind: str = Form(...), config_json: str = Form("{}")):
         if kind == "proof_run":
             config = {**proof_defaults(), **config}
             if config.get("cpu_test") or not str(config["device"]).startswith("cuda:"):
-                raise ValueError("Web proof runs require CUDA")
+                raise ValueError("Web proof runs require NVIDIA CUDA or AMD ROCm")
             validate_proof(config)
             data_path(config["output_dir"], str(settings.data_root))
         if kind == "automated_run":

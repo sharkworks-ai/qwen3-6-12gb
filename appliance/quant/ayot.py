@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 
+from appliance.gpu import compute_dtype
 from appliance.quant.mixed_job import file_hash
 from appliance.quant.precision import digest
 from appliance.stages.common import data_path, load_config, save_json
@@ -44,7 +45,7 @@ def run(cfg: dict):
     tokenizer = AutoTokenizer.from_pretrained(str(source), trust_remote_code=False)
     model = AutoModelForCausalLM.from_pretrained(
         str(source),
-        dtype=torch.bfloat16,
+        dtype=compute_dtype(cfg.get("device", "cuda:0")),
         device_map="auto",
         trust_remote_code=False,
         max_memory={int(k) if str(k).isdigit() else k: v for k, v in cfg["max_memory"].items()}

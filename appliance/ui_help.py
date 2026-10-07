@@ -1,7 +1,7 @@
 """User-facing terminology and explanations shared by the web pages."""
 
 FIELDS = {
-    "compute_dtype": "Arithmetic precision: auto uses BF16 on CUDA GPUs with native support and FP32 on older GPUs or CPU. FP32 uses more memory but avoids unsupported BF16 operations.",
+    "compute_dtype": "Arithmetic precision: auto uses BF16 on NVIDIA or AMD GPUs with native support and FP32 on older GPUs or CPU. FP32 uses more memory but avoids unsupported BF16 operations.",
     "proof_size": "Laptop creates about 100M parameters with shorter examples; standard creates about 160M. Neither promises memory fit.",
     "model": "Model checkpoint directory or Hugging Face model ID. Advanced training can download a remote ID; the wizard requires a local checkpoint.",
     "source_model": "Local source checkpoint containing config.json, tokenizer files and safetensors weights. Use a separate output directory.",
@@ -24,7 +24,7 @@ FIELDS = {
     "recovery_dataset": "JSONL text or messages used for quantization-aware recovery training.",
     "benchmark_results": "JSON file of published benchmark scores, artifact hashes and harness revisions. See Help for the required evidence.",
     "cuda_devices": "Physical GPU IDs visible in System, separated by commas. Inside the selected process these become cuda:0, cuda:1, in this order.",
-    "device": "Logical GPU within the selected set, usually cuda:0. Web proof runs require CUDA, not CPU.",
+    "device": "Logical GPU within the selected set, usually cuda:0. Web proof runs require NVIDIA CUDA or AMD ROCm, not CPU.",
     "runtime_device": "Logical GPU for packed inference and context tests. These tests use one selected GPU.",
     "window_devices": 'Logical GPUs for layer reconstruction, for example ["cuda:0", "cuda:1"]. Use only devices exposed by cuda_devices.',
     "num_processes": "Training worker processes, normally one per selected GPU. Two processes do not combine GPU memory into one allocation.",

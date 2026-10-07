@@ -1,0 +1,2 @@
+[console_scripts]
+qwen12g = qwen12g.cli:app

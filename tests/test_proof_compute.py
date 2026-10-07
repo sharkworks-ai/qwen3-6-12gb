@@ -30,3 +30,13 @@ def test_laptop_wizard_rejects_arbitrary_size_and_keeps_native_context(tmp_path)
     assert "cpu_test" not in plan["config"]
     with pytest.raises(ValueError, match="proof size"):
         compile_plan({"goal": "proof", "proof_size": "giant"}, str(tmp_path))
+
+
+def test_proof_arithmetic_on_rocm_uses_native_bf16_query(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.version, "hip", "6.4")
+    monkeypatch.setattr(torch.cuda, "device", lambda device: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda including_emulation=True: False)
+    assert compute_dtype({"device": "cuda:0"}) == torch.float32
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda including_emulation=True: True)
+    assert compute_dtype({"device": "cuda:0"}) == torch.bfloat16

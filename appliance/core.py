@@ -9,7 +9,6 @@ import signal
 import sqlite3
 import subprocess
 import sys
-import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +17,7 @@ from uuid import uuid4
 
 from itsdangerous import BadSignature, URLSafeSerializer
 
+from appliance.gpu import GpuTelemetry, gpu_info
 from appliance.registry import JOBS, command_for, get_job
 
 
@@ -123,41 +123,12 @@ class Auth:
         return payload.get("authenticated") is True
 
 
-def gpu_info() -> list[dict[str, str]]:
-    try:
-        result = subprocess.run(["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"], check=True, capture_output=True, text=True)
-    except (OSError, subprocess.CalledProcessError): return []
-    rows=[]
-    for line in result.stdout.splitlines():
-        p=[x.strip() for x in line.split(",")]
-        if len(p)>=6: rows.append(dict(index=p[0],name=p[1],memory_total=p[2],memory_used=p[3],utilization=p[4],temperature=p[5]))
-    return rows
-
-
 def storage_info(path: Path) -> dict[str, int]:
     u=shutil.disk_usage(path); return dict(total=u.total, used=u.used, free=u.free)
 
 
-class NvidiaTelemetry:
-    QUERY="index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw"
-    def __init__(self, output: Path, interval: float=1.0):
-        self.output=output; self.interval=interval; self.stop_event=threading.Event(); self.thread=None
-    def start(self):
-        self.output.parent.mkdir(parents=True, exist_ok=True); self.thread=threading.Thread(target=self._run,daemon=True); self.thread.start()
-    def stop(self):
-        self.stop_event.set(); self.thread and self.thread.join(timeout=5)
-    def _run(self):
-        with self.output.open("w",newline="",encoding="utf-8") as h:
-            w=csv.writer(h); w.writerow(["timestamp","index","name","memory_total_mib","memory_used_mib","utilization_gpu_percent","temperature_c","power_w"])
-            while not self.stop_event.is_set():
-                now=datetime.now(UTC).isoformat()
-                try:
-                    r=subprocess.run(["nvidia-smi",f"--query-gpu={self.QUERY}","--format=csv,noheader,nounits"],check=True,capture_output=True,text=True)
-                    for line in r.stdout.splitlines():
-                        if line.strip(): w.writerow([now,*[x.strip() for x in line.split(",")]])
-                    h.flush()
-                except (OSError,subprocess.CalledProcessError) as e: w.writerow([now,"error",str(e)]); h.flush()
-                self.stop_event.wait(self.interval)
+# Compatibility alias for existing callers and integrations.
+NvidiaTelemetry = GpuTelemetry
 
 
 def peak_vram(path: Path) -> dict[str,float]:

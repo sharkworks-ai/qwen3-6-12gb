@@ -1,6 +1,6 @@
 # Qwen3.6 12GB Training Appliance
 
-The `dev` direction packages the project as one NVIDIA GPU container with a web UI.
+The `dev` direction packages the project as one NVIDIA CUDA or AMD ROCm GPU container with a web UI.
 
 ## Quick start
 
@@ -35,3 +35,8 @@ checkpoint restart checks and packed inference. See [the workflow guide](../docs
 Synthetic process results and unmeasured VRAM never count as release approval.
 
 The default web page is a six-step [guided run wizard](../docs/WIZARD.md). It launches one resumable training/compression/diagnostic job, with optional automatic published benchmarks through a configured isolated service.
+
+## AMD ROCm
+
+Use the separate [AMD setup](../docs/AMD_SUPPORT.md) and `compose.rocm.yml`.
+The existing `compose.yml` remains the NVIDIA setup.
