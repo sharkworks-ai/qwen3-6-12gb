@@ -17,6 +17,9 @@ class JobSpec:
 
 
 JOBS: dict[str, JobSpec] = {
+    "mixed_quant": JobSpec("mixed_quant", "Mixed GSQ / AYOT ternary", "Experimental B/C reconstruction with saved tensor precision maps.", "appliance.quant.mixed_job"),
+    "mixed_pipeline": JobSpec("mixed_pipeline", "B/C compression pipeline", "Reconstruction, selective QAT recovery and re-quantization.", "appliance.quant.pipeline"),
+    "ayot": JobSpec("ayot", "Teacher reasoning calibration", "Generate resumable source-model reasoning traces.", "appliance.quant.ayot"),
     "smoke": JobSpec("smoke", "GPU smoke test", "Validate CUDA and GPU telemetry.", "appliance.smoke"),
     "sft": JobSpec("sft", "SFT / QLoRA", "Agent/coding supervised fine-tuning with PEFT MoE expert adapters.", "appliance.stages.sft", distributed=True),
     "merge": JobSpec("merge", "Merge adapter", "Merge a recovered PEFT adapter into a full BF16 checkpoint for conversion/quantization.", "appliance.stages.merge"),

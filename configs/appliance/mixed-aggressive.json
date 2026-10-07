@@ -1,0 +1,32 @@
+{
+  "preset": "aggressive",
+  "source_model": "/data/checkpoints/qwen36-merged",
+  "output_dir": "/data/artifacts/aggressive",
+  "calibration_file": "/data/datasets/calibration.jsonl",
+  "attention_bits": 4,
+  "shared_bits": 4,
+  "group_size": 64,
+  "context_length": 262144,
+  "steps": 100,
+  "row_chunk": 64,
+  "max_samples": 128,
+  "calibration_length": 2048,
+  "learning_rate": 0.01,
+  "seed": 42,
+  "device": "cuda:0",
+  "cuda_devices": "0,1",
+  "dry_run": true,
+  "resume": false,
+  "sensitive_tensors": [],
+  "recovery": {
+    "enabled": false,
+    "dataset": "/data/datasets/recovery.jsonl",
+    "num_processes": 2,
+    "max_steps": 200,
+    "save_steps": 50,
+    "max_length": 8192,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 5e-06
+  }
+}

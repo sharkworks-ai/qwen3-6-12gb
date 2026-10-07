@@ -1,0 +1,72 @@
+{% extends "base.html" %}{% block content %}
+<h1>Aggressive and extreme compression</h1>
+<p>Experimental local GSQ reconstruction and AYOT ternary research pipelines. C is ScaleQ-inspired, not an upstream ScaleQ reproduction. Packed outputs require a production runtime adapter. BF16 exports are for evaluation and recovery.</p>
+<div class="grid">
+<section class="card">
+<h2>Configure B / C</h2>
+<label>Preset <select id="preset"><option value="aggressive">B: GSQ 2-bit experts</option><option value="extreme">C: AYOT ternary + sensitive GSQ + QAT</option></select></label>
+<p><label>Attention bits <select id="attention"><option>4</option><option>3</option></select></label>
+<label>Shared expert bits <select id="shared"><option>4</option><option>3</option></select></label></p>
+<p><label><input id="recovery" type="checkbox"> QAT recovery</label>
+<label><input id="resume" type="checkbox"> Resume existing run</label></p>
+<p class="muted">Edit paths, sensitive tensor rules, calibration length, optimisation steps and recovery settings below. Rules are regex matches on HF parameter names. First-match priority applies. The defaults for C protect the first two expert layers; replace these with measured sensitivity rules.</p>
+<form action="/jobs/start" method="post" id="compression-form">
+<input type="hidden" name="kind" value="mixed_pipeline">
+<textarea id="config" name="config_json" rows="32" style="width:100%"></textarea>
+<p><button type="submit" id="plan">Validate and save plan</button>
+<button type="submit" id="launch" class="primary">Run pipeline</button></p>
+</form>
+<p>Watch logs and VRAM on the Runs page. Resume with the same paths and settings. Changed source/config/calibration is rejected.</p>
+</section>
+<section class="card"><h2>AYOT teacher traces for C</h2>
+<p>Generate reasoning traces from the uncompressed source checkpoint. Use coding, tool-use and reasoning prompts in JSONL. The prompt file must contain prompt or messages fields without assistant answers. Traces must complete a thinking section.</p>
+<form method="post" action="/jobs/start">
+<input type="hidden" name="kind" value="ayot">
+<textarea name="config_json" rows="15" style="width:100%">{
+  "source_model": "/data/checkpoints/qwen36-merged",
+  "prompts_file": "/data/datasets/prompts.jsonl",
+  "output_file": "/data/datasets/ayot.jsonl",
+  "max_samples": 128,
+  "max_prompt_tokens": 2048,
+  "max_new_tokens": 4096,
+  "cuda_devices": "0,1",
+  "resume": false
+}</textarea><button class="primary">Generate teacher traces</button></form>
+<h2>Evaluation and publishing</h2>
+<p>The output includes precision-map.json, packed shards, a reconstruction manifest and research-hf. C also produces a recovered checkpoint and requantized output. Use existing evaluation and <a href="/publish">Publish</a> workflows for the results.</p>
+<p>Neither preset automatically passes the release gate. Test coding, executable tool loops, long context and peak VRAM separately.</p>
+</section></div>
+<script>
+const presets = {{ presets | tojson }};
+const config = document.getElementById('config');
+function reset() {
+ const c = structuredClone(presets[document.getElementById('preset').value]);
+ config.value = JSON.stringify(c,null,2);
+ document.getElementById('recovery').checked = c.recovery.enabled;
+ document.getElementById('attention').value = c.attention_bits;
+ document.getElementById('shared').value = c.shared_bits;
+ document.getElementById('resume').checked = c.resume;
+}
+document.getElementById('preset').addEventListener('change',reset);
+for (const id of ['attention','shared','recovery','resume']) {
+ document.getElementById(id).addEventListener('change',() => {
+  try {
+   const c=JSON.parse(config.value);
+   c.attention_bits=Number(document.getElementById('attention').value);
+   c.shared_bits=Number(document.getElementById('shared').value);
+   c.recovery.enabled=document.getElementById('recovery').checked;
+   c.resume=document.getElementById('resume').checked;
+   config.value=JSON.stringify(c,null,2);
+  } catch(e) { alert('Fix the JSON before changing controls.'); }
+ });
+}
+document.getElementById('compression-form').addEventListener('submit',e => {
+ try {
+  const c=JSON.parse(config.value);
+  c.dry_run=e.submitter.id==='plan';
+  config.value=JSON.stringify(c,null,2);
+ } catch(err) { e.preventDefault(); alert('Invalid JSON: '+err.message); }
+});
+reset();
+</script>
+{% endblock %}

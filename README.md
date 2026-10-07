@@ -105,6 +105,14 @@ The repository is being prepared for a remote RTX 5090 worker. The 5090 is the d
 
 Remote rented GPU workers must use temporary, least-privilege credentials. Do not forward personal SSH agents or broad GitHub/Hugging Face tokens into model-executed sandboxes.
 
+## Mixed B / C research pipelines
+
+The appliance now includes a **B / C compression** page for GSQ-style 2-bit
+expert reconstruction and an AYOT ternary experiment with selective QAT recovery.
+Both are local research implementations; C is ScaleQ-inspired, not an upstream
+ScaleQ reproduction. Production mixed-format inference/export remains unfinished.
+See [mixed compression details](docs/MIXED_COMPRESSION.md) before launching.
+
 ## Dataset note
 
 The proposed `r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation` dataset is useful for research, but its upstream provenance and licensing must be reviewed before any commercial redistribution or use. Keep dataset manifests and provenance with every training run.

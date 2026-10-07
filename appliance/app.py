@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -27,6 +27,8 @@ from appliance.publish import push_github, push_huggingface
 from appliance.runtime.matrix import runtime_matrix
 from appliance.search.pareto import frontier
 from appliance.search.release_search import ReleaseSearch, ReleaseSearchConfig
+from appliance.quant.presets import preset
+from appliance.quant.precision import validate as validate_precision
 
 
 settings = Settings.from_env()
@@ -160,9 +162,28 @@ def workflows(request: Request):
 
 @app.post("/jobs/start")
 def start_job(kind: str = Form(...), config_json: str = Form("{}")):
-    config = json.loads(config_json or "{}")
+    try:
+        config = json.loads(config_json or "{}")
+        if not isinstance(config, dict):
+            raise ValueError("Config must be a JSON object")
+        if kind in {"mixed_quant", "mixed_pipeline"}:
+            validate_precision(config)
+            if kind == "mixed_pipeline" and config["preset"] == "extreme":
+                recovery = config.get("recovery", {})
+                if not recovery.get("enabled", True) or not recovery.get("dataset"):
+                    raise ValueError("Extreme requires QAT recovery and a recovery dataset")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     run_id = jobs.start(kind, config)
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
+
+
+@app.get("/compression", response_class=HTMLResponse)
+def compression_page(request: Request):
+    return templates.TemplateResponse(
+        request=request, name="compression.html",
+        context={"presets": {name: preset(name) for name in ("aggressive", "extreme")}},
+    )
 
 
 @app.get("/runs", response_class=HTMLResponse)
