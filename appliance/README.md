@@ -33,3 +33,5 @@ reverse proxy. Set `QWEN12G_SECURE_COOKIE=1` when the browser reaches it over HT
 Use **12GB proof** for the seeded hybrid MoE, baseline/B/C recovery comparison,
 checkpoint restart checks and packed inference. See [the workflow guide](../docs/PROOF_RUN.md).
 Synthetic process results and unmeasured VRAM never count as release approval.
+
+The default web page is a six-step [guided run wizard](../docs/WIZARD.md). It launches one resumable training/compression/diagnostic job, with optional automatic published benchmarks through a configured isolated service.

@@ -33,6 +33,7 @@ from appliance.runtime.matrix import runtime_matrix
 from appliance.search.pareto import frontier
 from appliance.search.release_search import ReleaseSearch, ReleaseSearchConfig
 from appliance.stages.common import data_path
+from appliance.wizard.config import compile_plan, harness_profiles
 
 settings = Settings.from_env()
 settings.ensure_dirs()
@@ -126,7 +127,7 @@ def logout():
     return response
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     jobs.reconcile()
     storage = storage_info(settings.data_root)
@@ -143,6 +144,61 @@ def dashboard(request: Request):
             },
         },
     )
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/wizard", response_class=HTMLResponse)
+def wizard_page(request: Request, resume_run: str | None = None):
+    initial = {}
+    if resume_run:
+        try:
+            job = db.get_job(resume_run)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+        if job.kind != "automated_run":
+            raise HTTPException(status_code=422, detail="This run was not created by the wizard")
+        initial = {**job.config["answers"], "resume": True}
+    return templates.TemplateResponse(
+        request=request, name="wizard.html",
+        context={"gpus": gpu_info(), "data_root": str(settings.data_root), "initial_answers": initial,
+                 "harnesses": [{"id": key, "label": value.get("label", key)} for key, value in harness_profiles().items()]},
+    )
+
+
+def _wizard_launch_config(answers):
+    plan = compile_plan(answers, str(settings.data_root))
+    selected = set(plan["config"]["cuda_devices"].split(","))
+    available = {str(g["index"]) for g in gpu_info()}
+    if not selected <= available:
+        raise ValueError("Selected GPUs are unavailable. Check the container GPU configuration.")
+    jobs.reconcile()
+    for job in db.list_jobs(1000):
+        if job.status in {"running", "queued", "stopping"} and JOBS[job.kind].gpu_required:
+            active = set(str(job.config.get("cuda_devices", "0")).split(","))
+            if selected & active:
+                raise ValueError(f"Selected GPUs are busy with run {job.run_id}")
+    config = plan["config"]
+    if (Path(config["output_dir"]) / "proof-progress.json").exists() and not config["resume"]:
+        raise ValueError("Run already exists. Select Resume or choose a new run name.")
+    return {"answers": answers, "cuda_devices": config["cuda_devices"], "output_dir": config["output_dir"], "resume": config["resume"]}
+
+
+@app.post("/api/v1/wizard/plan")
+async def wizard_plan(request: Request):
+    try:
+        return compile_plan(await request.json(), str(settings.data_root))
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/wizard/start")
+async def wizard_start(request: Request):
+    try:
+        config = _wizard_launch_config(await request.json())
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    run_id = jobs.start("automated_run", config)
+    return {"run_id": run_id, "url": f"/runs/{run_id}"}
 
 
 @app.get("/workbench", response_class=HTMLResponse)
@@ -175,6 +231,8 @@ def start_job(kind: str = Form(...), config_json: str = Form("{}")):
                 raise ValueError("Web proof runs require CUDA")
             validate_proof(config)
             data_path(config["output_dir"], str(settings.data_root))
+        if kind == "automated_run":
+            config = _wizard_launch_config(config["answers"])
         if kind == "full_validation":
             config = {**validation_defaults(), **config}
             data_path(config["output_dir"], str(settings.data_root))
@@ -235,6 +293,11 @@ def run_page(request: Request, run_id: str):
     jobs.reconcile()
     job = db.get_job(run_id)
     run_dir = settings.data_root / "runs" / run_id
+    progress = None
+    if job.kind == "automated_run":
+        path = data_path(job.config["output_dir"], str(settings.data_root)) / "proof-progress.json"
+        if path.exists():
+            progress = json.loads(path.read_text())
 
     def read(name: str) -> str:
         path = run_dir / name
@@ -251,6 +314,7 @@ def run_page(request: Request, run_id: str):
             "stderr": read("stderr.log"),
             "result": read("result.json"),
             "config": read("config.json"),
+            "progress": progress,
         },
     )
 

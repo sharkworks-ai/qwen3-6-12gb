@@ -47,7 +47,9 @@ def run(cfg: dict):
         dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=False,
-        max_memory=cfg.get("max_memory"),
+        max_memory={int(k) if str(k).isdigit() else k: v for k, v in cfg["max_memory"].items()}
+        if cfg.get("max_memory")
+        else None,
     ).eval()
     rows = [json.loads(line) for line in prompts.read_text().splitlines() if line.strip()]
     rows = rows[: int(cfg.get("max_samples", 128))]

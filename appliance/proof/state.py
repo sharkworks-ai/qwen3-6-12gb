@@ -77,7 +77,9 @@ class Stages:
                         [
                             sys.executable,
                             "-m",
-                            "appliance.proof.worker",
+                            "appliance.wizard.worker"
+                            if operation == "registered"
+                            else "appliance.proof.worker",
                             "--config",
                             str(config_path),
                         ],
@@ -108,6 +110,8 @@ class Stages:
         if code == 0:
             item["hashes"] = hashes(stage)
         self.state["stages"][name] = item
+        if code:
+            self.state["status"] = "failed"
         save_json(self.path, self.state)
         print(f"{name}: {item['status']}", flush=True)
         if code:

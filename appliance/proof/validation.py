@@ -76,11 +76,19 @@ def run(cfg):
         for name in (
             "source_model",
             "calibration_file",
-            "ayot_file",
             "recovery_dataset",
             "heldout_file",
         )
     }
+    names = cfg.get("variants", ["aggressive", "extreme"])
+    if (
+        not names
+        or len(set(names)) != len(names)
+        or any(n not in {"aggressive", "extreme"} for n in names)
+    ):
+        raise ValueError("Choose aggressive, extreme or both")
+    if "extreme" in names:
+        paths["ayot_file"] = data_path(cfg["ayot_file"], root)
     for name, path in paths.items():
         if not (path.is_dir() if name == "source_model" else path.is_file()):
             raise ValueError(f"Missing validation input: {name}")
@@ -89,8 +97,9 @@ def run(cfg):
             "Full validation requires a trained real checkpoint, not a synthetic proof model"
         )
     if any(
-        paths["heldout_file"] == paths[name]
-        for name in ("calibration_file", "ayot_file", "recovery_dataset")
+        paths["heldout_file"] == path
+        for name, path in paths.items()
+        if name not in {"heldout_file", "source_model"}
     ):
         raise ValueError("Held-out data must be separate from calibration and recovery")
     if not cfg["context_lengths"] or int(cfg["context_repeats"]) < 1:
@@ -103,7 +112,9 @@ def run(cfg):
         or paths["source_model"] in output.parents
     ):
         raise ValueError("Source and output must be separate")
-    provenance = load_components({**cfg, "preset": "extreme"})[3]
+    provenance = load_components(
+        {**cfg, "preset": "extreme" if "extreme" in names else "aggressive"}
+    )[3]
     # Freeze real input evidence, not only path strings.
     inputs = {
         str(p): sha256(p)
@@ -135,7 +146,7 @@ def run(cfg):
             capture_logits=False,
         )
         variants = {}
-        for name in ("aggressive", "extreme"):
+        for name in names:
             directory = output / f"{name}-pipeline" / "artifact"
             quant = {
                 **preset(name),
@@ -180,6 +191,12 @@ def run(cfg):
                         bundle=str(final),
                         context_length=length,
                     )
+                    physical = str(cfg["cuda_devices"]).split(",")[
+                        int(cfg["runtime_device"].split(":")[-1])
+                    ]
+                    result["peak_device_mib"] = stages.state["stages"][
+                        f"{name}-context-{length}-{repetition}"
+                    ]["peak_vram_mib"].get(physical)
                     contexts.append(result)
             variants[name] = {"metrics": metrics, "contexts": contexts, "bundle": str(final)}
         benchmark_gate = None
@@ -212,7 +229,9 @@ def run(cfg):
                     c["needle_found"] for v in variants.values() for c in v["contexts"]
                 ),
                 "within_vram_limit": all(
-                    c["peak_allocated_mib"] / 1024 <= float(cfg["vram_limit_gib"])
+                    c.get("peak_device_mib") is not None
+                    and max(c["peak_allocated_mib"], c["peak_device_mib"]) / 1024
+                    <= float(cfg["vram_limit_gib"])
                     for v in variants.values()
                     for c in v["contexts"]
                 ),

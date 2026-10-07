@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<h1>12GB proof run</h1>
+<h1>Run reports and advanced validation</h1><p><a href="/wizard">Start a guided automated run →</a></p>
 <p>Run a miniature hybrid Qwen MoE through training, baseline evaluation, B and C, QAT, re-quantization and packed inference. A planned checkpoint interruption tests restart. Synthetic data tests the process; it does not establish coding quality.</p>
 <div class="grid"><section class="card"><h2>Single-GPU proof</h2>
 <p>Defaults build about 160M parameters. Short sequences keep the first test small. Native context remains 262144, but this run does not test that length.</p>
@@ -34,8 +34,8 @@
 <section class="card" style="margin-top:16px"><h2>Open a report</h2>
 <form method="get" action="/proof"><label>Output directory <input name="output_dir" value="{{ output_dir }}" style="width:420px"></label><button>Load report</button></form>
 {% if error %}<p class="bad">{{ error }}</p>{% endif %}
-{% if report %}
-<p>Status: <strong>{{ report.status }}</strong>. {% if report.synthetic %}Synthetic miniature test.{% else %}Full-model validation.{% endif %} Production runtime: {{ report.production_runtime }}.</p>
+{% if report %}{% if report.pipeline_stages %}<h3>Automated pipeline</h3><table><tr><th>Stage</th><th>Status</th></tr>{% for name, stage in report.pipeline_stages.items() %}<tr><td>{{name}}</td><td>{{stage.status}}</td></tr>{% endfor %}</table>{% endif %}{% if report.selection %}<h3>Candidate selection</h3><p>Recommended candidate: {{ report.selection.recommended or 'None: quality and resource gates not met' }}. Release approval remains a separate validation.</p><table><tr><th>Variant</th><th>Memory</th><th>Retrieval</th><th>Published benchmarks</th></tr>{% for candidate in report.selection.candidates %}<tr><td>{{candidate.name}}</td><td>{{candidate.memory_pass}}</td><td>{{candidate.retrieval_pass}}</td><td>{{candidate.benchmark_pass}}</td></tr>{% endfor %}</table>{% endif %}
+<p>Status: <strong>{{ report.status }}</strong>. {% if report.synthetic %}Synthetic miniature test.{% else %}Real-model diagnostics.{% endif %} Production runtime: {{ report.production_runtime }}.</p>
 {% if report.checks %}<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{% for name, value in report.checks.items() %}<tr><td>{{ name }}</td><td class="{{ 'good' if value else 'bad' }}">{{ 'Pass' if value else 'Not passed' }}</td></tr>{% endfor %}</tbody></table>{% endif %}
 {% if report.variants %}<h3>Comparison</h3><table><thead><tr><th>Variant</th><th>Held-out loss</th><th>Loss change</th><th>Resident tensors</th><th>Packed inference peak</th></tr></thead><tbody>
 <tr><td>Baseline</td><td>{{ report.baseline.heldout_loss | round(4) }}</td><td>0</td><td>{{ (report.baseline.resident_tensor_bytes / 1048576) | round(1) }} MiB</td><td>{{ report.baseline.inference_peak_allocated_mib or 'Unmeasured' }}</td></tr>

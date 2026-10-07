@@ -125,3 +125,5 @@ full-model validation workflow. See [proof-run instructions](docs/PROOF_RUN.md).
 ## Dataset note
 
 The proposed `r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation` dataset is useful for research, but its upstream provenance and licensing must be reviewed before any commercial redistribution or use. Keep dataset manifests and provenance with every training run.
+
+The default web page is a six-step [guided run wizard](docs/WIZARD.md). It launches one resumable training/compression/diagnostic job, with optional automatic published benchmarks through a configured isolated service.

@@ -17,6 +17,8 @@ class JobSpec:
 
 
 JOBS: dict[str, JobSpec] = {
+    "automated_run": JobSpec("automated_run", "Guided automated run", "Train, optimize, quantize and benchmark from wizard answers.", "appliance.wizard.job"),
+    "wizard_benchmarks": JobSpec("wizard_benchmarks", "Isolated benchmark service", "Run pinned sandboxed suites and collect artifact-bound scores.", "appliance.wizard.benchmarks", gpu_required=False),
     "packed_inference": JobSpec("packed_inference", "Packed text generation", "Generate directly from mixed packed artifacts with bounded decode scratch.", "appliance.runtime.job"),
     "benchmark_compare": JobSpec("benchmark_compare", "Benchmark comparison", "Check artifact-bound external benchmark scores against OxCoder gates.", "appliance.proof.benchmarks", gpu_required=False),
     "proof_run": JobSpec("proof_run", "12GB miniature proof", "Single-GPU baseline/B/C, recovery, restart and packed inference checks.", "appliance.proof.job"),
