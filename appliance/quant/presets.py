@@ -6,8 +6,18 @@ def preset(name: str) -> dict:
         raise ValueError(name)
     return {
         "preset": name,
+        "engine": "upstream_window",
+        "window_size": 2 if name == "extreme" else 1,
+        "window_stride": 1,
+        "window_devices": ["cuda:0", "cuda:1"],
+        "checkpoint_steps": 25,
+        "masks_lr": 0.0002,
+        "gptq_damp": 0.1,
+        "gptq_block_size": 128,
+        "catq_rank": 4,
+        "catq_alpha": 4,
         "source_model": "/data/checkpoints/qwen36-merged",
-        "output_dir": f"/data/artifacts/{name}",
+        "output_dir": f"/data/artifacts/{name}-upstream",
         "calibration_file": "/data/datasets/ayot.jsonl"
         if name == "extreme"
         else "/data/datasets/calibration.jsonl",

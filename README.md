@@ -107,10 +107,11 @@ Remote rented GPU workers must use temporary, least-privilege credentials. Do no
 
 ## Mixed B / C research pipelines
 
-The appliance now includes a **B / C compression** page for GSQ-style 2-bit
-expert reconstruction and an AYOT ternary experiment with selective QAT recovery.
-Both are local research implementations; C is ScaleQ-inspired, not an upstream
-ScaleQ reproduction. Production mixed-format inference/export remains unfinished.
+The appliance includes a **B / C compression** page using pinned upstream GSQ
+quantizers, activation-Hessian GPTQ initialization and full-block reconstruction.
+C adds overlapping-window ternary reconstruction with CAT-Q factors, low-rank
+correction, AYOT traces and selective QAT recovery. C is a ScaleQ-inspired
+adaptation. Production mixed-format inference/export remains unfinished.
 See [mixed compression details](docs/MIXED_COMPRESSION.md) before launching.
 
 ## Dataset note

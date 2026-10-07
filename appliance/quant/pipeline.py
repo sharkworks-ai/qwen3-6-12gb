@@ -8,7 +8,6 @@ import json
 import subprocess
 from pathlib import Path
 
-from appliance.quant.mixed_job import run as reconstruct
 from appliance.registry import command_for
 from appliance.stages.common import load_config, save_json
 
@@ -16,6 +15,10 @@ from appliance.stages.common import load_config, save_json
 def run(cfg: dict):
     cfg = copy.deepcopy(cfg)
     recovery = cfg.pop("recovery", {})
+    if cfg.get("engine", "reference") == "upstream_window":
+        from appliance.quant.window_job import run as reconstruct
+    else:
+        from appliance.quant.mixed_job import run as reconstruct
     if cfg.get("preset") == "extreme" and not recovery.get("enabled", True):
         raise ValueError("Extreme pipeline requires QAT recovery")
     if recovery.get("enabled", cfg["preset"] == "extreme") and not recovery.get("dataset"):

@@ -15,7 +15,7 @@ def tensor_spec(name: str, cfg: dict) -> dict | None:
     # Routers, normalisation, biases and state-space scalars stay full precision.
     if not re.search(r"(\.weight$|\.experts\.(gate_up_proj|down_proj)$)", name):
         return None
-    if re.search(r"(norm|embed|lm_head|\.gate\.weight$|router)", name):
+    if re.search(r"(norm|embed|lm_head|\.gate\.weight$|router|shared_expert_gate)", name):
         return None
     routed = ".experts." in name and "shared_expert" not in name
     if routed:
@@ -33,6 +33,13 @@ def tensor_spec(name: str, cfg: dict) -> dict | None:
 
 
 def validate(cfg: dict) -> None:
+    if cfg.get("engine", "reference") not in {"reference", "upstream_window"}:
+        raise ValueError("Unknown reconstruction engine")
+    if int(cfg.get("checkpoint_steps", 25)) < 1:
+        raise ValueError("checkpoint_steps must be positive")
+    width = int(cfg.get("window_size", 1))
+    if not 1 <= int(cfg.get("window_stride", 1)) <= width:
+        raise ValueError("Require 1 <= window_stride <= window_size")
     if cfg.get("preset") not in {"aggressive", "extreme"}:
         raise ValueError("preset must be aggressive or extreme")
     if int(cfg.get("context_length", 262144)) != 262144:

@@ -1,10 +1,11 @@
 {% extends "base.html" %}{% block content %}
 <h1>Aggressive and extreme compression</h1>
-<p>Experimental local GSQ reconstruction and AYOT ternary research pipelines. C is ScaleQ-inspired, not an upstream ScaleQ reproduction. Packed outputs require a production runtime adapter. BF16 exports are for evaluation and recovery.</p>
+<p>Pinned upstream GSQ quantizers with GPTQ initialization, full block-output reconstruction, and a sliding-window CAT-Q/AYOT adaptation. C is ScaleQ-inspired, not an upstream ScaleQ reproduction. Packed outputs require a production runtime adapter. BF16 exports are for evaluation and recovery.</p>
 <div class="grid">
 <section class="card">
 <h2>Configure B / C</h2>
 <label>Preset <select id="preset"><option value="aggressive">B: GSQ 2-bit experts</option><option value="extreme">C: AYOT ternary + sensitive GSQ + QAT</option></select></label>
+<p><label>Implementation <select id="engine"><option value="upstream_window">Pinned upstream + sliding reconstruction</option><option value="reference">Earlier tensor-only reference</option></select></label></p>
 <p><label>Attention bits <select id="attention"><option>4</option><option>3</option></select></label>
 <label>Shared expert bits <select id="shared"><option>4</option><option>3</option></select></label></p>
 <p><label><input id="recovery" type="checkbox"> QAT recovery</label>
@@ -46,9 +47,10 @@ function reset() {
  document.getElementById('attention').value = c.attention_bits;
  document.getElementById('shared').value = c.shared_bits;
  document.getElementById('resume').checked = c.resume;
+ document.getElementById('engine').value = c.engine;
 }
 document.getElementById('preset').addEventListener('change',reset);
-for (const id of ['attention','shared','recovery','resume']) {
+for (const id of ['attention','shared','recovery','resume','engine']) {
  document.getElementById(id).addEventListener('change',() => {
   try {
    const c=JSON.parse(config.value);
@@ -56,6 +58,7 @@ for (const id of ['attention','shared','recovery','resume']) {
    c.shared_bits=Number(document.getElementById('shared').value);
    c.recovery.enabled=document.getElementById('recovery').checked;
    c.resume=document.getElementById('resume').checked;
+   c.engine=document.getElementById('engine').value;
    config.value=JSON.stringify(c,null,2);
   } catch(e) { alert('Fix the JSON before changing controls.'); }
  });

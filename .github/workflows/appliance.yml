@@ -9,6 +9,7 @@ on:
       - "tests/test_appliance.py"
       - "tests/test_mixed_quant.py"
       - "tests/test_quant_recovery.py"
+      - "tests/test_upstream_reconstruction.py"
       - ".github/workflows/appliance.yml"
   workflow_dispatch:
 permissions:
@@ -25,7 +26,17 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: python -m pip install itsdangerous huggingface_hub pytest safetensors fastapi uvicorn jinja2 python-multipart httpx PyYAML "transformers>=5.17.0"
-      - run: pytest -q tests/test_appliance.py tests/test_mixed_quant.py tests/test_quant_recovery.py
+      - run: python -m pip install --no-deps lion-pytorch==0.2.5
+      - name: Fetch pinned quantizer sources
+        run: |
+          git clone https://github.com/IST-DASLab/GSQ /tmp/gsq
+          git -C /tmp/gsq checkout --detach 03fc16484c369e3127225615d5e03e8d3a6043e3
+          git clone https://github.com/IntelChina-AI/BitTern /tmp/bittern
+          git -C /tmp/bittern checkout --detach 5a8fcd4f7e0366554b732d300a37e6ea467c3c35
+      - run: python -m pytest -q tests/test_appliance.py tests/test_mixed_quant.py tests/test_quant_recovery.py tests/test_upstream_reconstruction.py
+        env:
+          QWEN12G_TEST_GSQ_ROOT: /tmp/gsq
+          QWEN12G_TEST_CATQ_ROOT: /tmp/bittern
   publish:
     needs: test
     runs-on: ubuntu-latest

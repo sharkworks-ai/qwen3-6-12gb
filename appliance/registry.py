@@ -17,6 +17,7 @@ class JobSpec:
 
 
 JOBS: dict[str, JobSpec] = {
+    "upstream_reconstruction": JobSpec("upstream_reconstruction", "Pinned GSQ / CAT-Q sliding reconstruction", "GPTQ-initialized upstream GSQ with CAT-Q grid adaptation and overlapping window targets.", "appliance.quant.window_job"),
     "mixed_quant": JobSpec("mixed_quant", "Mixed GSQ / AYOT ternary", "Experimental B/C reconstruction with saved tensor precision maps.", "appliance.quant.mixed_job"),
     "mixed_pipeline": JobSpec("mixed_pipeline", "B/C compression pipeline", "Reconstruction, selective QAT recovery and re-quantization.", "appliance.quant.pipeline"),
     "ayot": JobSpec("ayot", "Teacher reasoning calibration", "Generate resumable source-model reasoning traces.", "appliance.quant.ayot"),
