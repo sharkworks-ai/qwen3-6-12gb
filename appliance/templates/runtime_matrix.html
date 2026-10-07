@@ -1,3 +1,3 @@
 {% extends "base.html" %}{% block content %}
-<h1>Runtime benchmark matrix</h1><p>{{matrix|length}} runtime combinations generated.</p><pre>{{matrix_json}}</pre>
+<h1>Runtime benchmark matrix</h1><p>Planning only: {{matrix|length}} proposed settings, not measured results. Backend support must be checked before execution. No server is launched here.</p><p>cache_k and cache_v select attention-cache precision. flash_attention selects the optimized attention path. cpu_moe_layers moves selected expert computation to CPU RAM, trading GPU memory for speed. TurboQuant cache entries are experimental proposals, not a working backend guarantee.</p><pre>{{matrix_json}}</pre>
 {% endblock %}

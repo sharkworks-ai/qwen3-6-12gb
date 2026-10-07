@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block content %}
-<h1>Model engineering workflows</h1><p class="muted">Every launch stores the exact JSON config with the run. Use Dry run first for expensive stages.</p>
+<h1>Model engineering workflows</h1><p class="muted">These controls launch one stage at a time. For an automated sequence, use <a href="/wizard">New run</a>. Example paths and remote IDs are not prepared inputs. Edit them before starting. Expand each configuration field guide or open <a href="/help#advanced">Help</a>. Stages with dry_run support can inspect a plan; that does not test GPU fit.</p>
 <div class="grid">
-<section class="card"><h2>SFT / QLoRA</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="sft"><textarea name="config_json" rows="22" style="width:100%">{
+<section class="card"><h2>Fine-tune with small adapters (SFT / QLoRA)</h2><p>Teach behavior from examples while keeping most base weights fixed. Requires a base model and training dataset. Writes adapter weights; merge them with the matching base before compression.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="sft"><textarea name="config_json" rows="22" style="width:100%">{
   "model": "Qwen/Qwen3.6-35B-A3B",
   "dataset_name": "r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation",
   "dataset_config": "canonical",
@@ -19,7 +19,7 @@
   "assistant_only_loss": true,
   "output_dir": "/data/checkpoints/qwen36-agent-sft"
 }</textarea><button class="primary">Start SFT</button></form></section>
-<section class="card"><h2>Expert profile</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="profile"><textarea name="config_json" rows="18" style="width:100%">{
+<section class="card"><h2>Measure expert usage</h2><p>Measure which routed experts your examples use. Requires a source model and representative data. Writes expert_profile.json for the pruning stage.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="profile"><textarea name="config_json" rows="18" style="width:100%">{
   "model": "Qwen/Qwen3.6-35B-A3B",
   "dataset_name": "r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation",
   "dataset_config": "canonical",
@@ -29,14 +29,14 @@
   "max_length": 8192,
   "output": "/data/artifacts/expert_profile.json"
 }</textarea><button class="primary">Profile experts</button></form></section>
-<section class="card"><h2>Structured expert prune</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="prune"><textarea name="config_json" rows="16" style="width:100%">{
+<section class="card"><h2>Remove selected experts</h2><p>Remove the least-used experts according to a matching usage profile. Requires the original model and expert_profile.json. Writes a new checkpoint; useful behavior may be lost.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="prune"><textarea name="config_json" rows="16" style="width:100%">{
   "model": "Qwen/Qwen3.6-35B-A3B",
   "profile": "/data/artifacts/expert_profile.json",
   "keep_experts": 128,
   "routing_mass_weight": 0.5,
   "output_dir": "/data/checkpoints/qwen36-pruned-128"
 }</textarea><button class="primary">Prune checkpoint</button></form></section>
-<section class="card"><h2>Calibration corpus</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="calibration"><textarea name="config_json" rows="14" style="width:100%">{
+<section class="card"><h2>Build a GGUF calibration corpus</h2><p>Convert representative conversations into plain text for llama.cpp importance-matrix calibration. Requires a model tokenizer and dataset. This output is not B/C JSONL calibration.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="calibration"><textarea name="config_json" rows="14" style="width:100%">{
   "model": "Qwen/Qwen3.6-35B-A3B",
   "dataset_name": "r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation",
   "dataset_config": "canonical",
@@ -45,12 +45,12 @@
   "output": "/data/artifacts/calibration.txt"
 }</textarea><button class="primary">Build calibration corpus</button></form></section>
 
-<section class="card"><h2>Merge recovery adapter</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="merge"><textarea name="config_json" rows="14" style="width:100%">{
+<section class="card"><h2>Combine adapter and base weights</h2><p>Requires the exact base model used to train the adapter and its adapter directory. Writes a full BF16 checkpoint for evaluation or conversion.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="merge"><textarea name="config_json" rows="14" style="width:100%">{
   "model": "/data/checkpoints/qwen36-pruned-128",
   "adapter": "/data/checkpoints/qwen36-pruned-recovery",
   "output_dir": "/data/checkpoints/qwen36-pruned-recovered-merged"
 }</textarea><button class="primary">Merge adapter</button></form></section>
-<section class="card"><h2>GGUF + mixed quantization</h2><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="quantize"><textarea name="config_json" rows="24" style="width:100%">{
+<section class="card"><h2>Export a llama.cpp model (GGUF)</h2><p>Convert a full checkpoint to GGUF and reduce weight precision. Requires a compatible llama.cpp backend; optionally uses the plain-text calibration corpus. This does not create the B/C packed format or test memory and quality.</p><form method="post" action="/jobs/start"><input type="hidden" name="kind" value="quantize"><textarea name="config_json" rows="24" style="width:100%">{
   "model": "/data/checkpoints/qwen36-pruned-128",
   "output_dir": "/data/artifacts/qwen36-pruned-128-gguf",
   "quant_type": "q3_k_m",

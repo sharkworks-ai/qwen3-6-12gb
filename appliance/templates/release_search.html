@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<h1>12 GB Release Search</h1><p class="muted">Profile → prune → recover → quantize → screen → benchmark → OxCoder gate → Pareto frontier → package.</p>
-<form method="post"><p><label>Source candidate<br><input name="source_candidate" value="{{default_source}}"></label></p><p><label>Maximum candidates<br><input type="number" name="max_candidates" value="64"></label></p><button class="primary">Generate search plan</button></form>
+<h1>12 GB Release Search</h1><p class="muted">Planning only: generates candidate and recovery settings and saves release-search-plan.json. It does not launch training, quantization or benchmarks. Use New run for an executable workflow.</p>
+<form method="post"><p><label>Recorded source candidate ID<br><input name="source_candidate" value="{{default_source}}"></label></p><p><label>Maximum proposed pruning candidates<br><input type="number" name="max_candidates" value="64"></label></p><button class="primary">Generate search plan</button></form><p>Copy an ID from <a href="/candidates">Candidate records</a>. The planner records this ID but does not verify or load a checkpoint. The cap applies to proposed pruning candidates, not GPU jobs. Review generated templates before using them.</p>
 {% if plan %}<h2>Plan</h2><pre>{{plan}}</pre>{% endif %}
 {% endblock %}

@@ -1,4 +1,4 @@
 {% extends "base.html" %}{% block content %}
-<h1>Failure trajectories</h1><p class="muted">Agent/tool traces are stored under /data/artifacts/traces.</p>
+<h1>Failure trajectories</h1><p class="muted">Lists trace filenames from the container’s artifacts/traces directory. The evaluation workflow must save them first. This page does not open their contents. For a failed training job, use Runs and its Error log.</p>
 <ul>{% for trace in traces %}<li>{{trace.name}}</li>{% else %}<li>No failure traces yet.</li>{% endfor %}</ul>
 {% endblock %}

@@ -1,11 +1,11 @@
 {% extends "base.html" %}{% block content %}
-<h1>Model engineering workbench</h1>
+<h1>Research tools</h1><p>Use <a href="/wizard">New run</a> for automated training and compression. The tools below inspect recorded evidence or generate plans; they do not all execute experiments.</p>
 <div class="grid">
-<section class="card"><h2>12 GB Release Search</h2><p>Automatically profile, prune, recover, quantize, screen, benchmark and package Pareto-winning candidates.</p><button class="primary" onclick="location.href='/release-search'">Open search</button></section>
+<section class="card"><h2>12 GB Release Search</h2><p>Generate a research search plan from a recorded candidate ID. This page saves a plan; it does not launch its stages or package a release.</p><button class="primary" onclick="location.href='/release-search'">Open search</button></section>
 <section class="card"><h2>Candidate comparison</h2><p>Compare VRAM, speed, context, coding, agent and OxCoder scores.</p><button onclick="location.href='/candidates'">Compare candidates</button></section>
-<section class="card"><h2>Datasets</h2><p>Build mixtures, freeze provenance manifests, deduplicate and check benchmark contamination.</p><button onclick="location.href='/datasets'">Dataset manager</button></section>
+<section class="card"><h2>Datasets</h2><p>Record dataset files, origins, licenses and hashes. This page does not upload files, build mixtures or check content overlap.</p><button onclick="location.href='/datasets'">Dataset manager</button></section>
 <section class="card"><h2>Lineage</h2><p>Trace base → SFT → profile → prune → recover → merge → quant → release.</p><button onclick="location.href='/lineage'">View lineage</button></section>
-<section class="card"><h2>Runtime matrix</h2><p>Benchmark llama.cpp/TurboQuant with KV, Flash Attention and CPU-MoE combinations.</p><button onclick="location.href='/runtime-matrix'">Runtime experiments</button></section>
-<section class="card"><h2>Failures</h2><p>Inspect complete agent/tool trajectories and failure classifications.</p><button onclick="location.href='/failures'">Trace browser</button></section>
+<section class="card"><h2>Runtime matrix</h2><p>Inspect proposed cache, attention and expert-offload combinations. This page generates settings, not benchmark results.</p><button onclick="location.href='/runtime-matrix'">Runtime experiments</button></section>
+<section class="card"><h2>Failures</h2><p>List trace filenames already saved by an evaluation workflow. This page does not run tasks or classify failures.</p><button onclick="location.href='/failures'">Trace browser</button></section>
 </div>
 {% endblock %}

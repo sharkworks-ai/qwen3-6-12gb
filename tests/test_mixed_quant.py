@@ -94,7 +94,7 @@ def test_web_preset_launch_and_validation(tmp_path, monkeypatch):
     with TestClient(app) as client:
         headers = {"Authorization": "Bearer unit-test-token-123"}
         response = client.get("/compression", headers=headers)
-        assert response.status_code == 200 and "ScaleQ-inspired" in response.text
+        assert response.status_code == 200 and "not a reproduction of ScaleQ" in response.text
         cfg = preset("extreme")
         response = client.post(
             "/jobs/start",

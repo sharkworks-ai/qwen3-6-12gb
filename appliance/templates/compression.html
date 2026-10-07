@@ -1,26 +1,26 @@
 {% extends "base.html" %}{% block content %}
-<h1>Aggressive and extreme compression</h1>
-<p>Pinned upstream GSQ quantizers with GPTQ initialization, full block-output reconstruction, and a sliding-window CAT-Q/AYOT adaptation. C is ScaleQ-inspired, not an upstream ScaleQ reproduction. Packed outputs require a production runtime adapter. BF16 exports are for evaluation and recovery.</p>
-<div class="grid">
+<h1>Advanced compression stages</h1><p>For a first experiment, use <a href="/wizard">New run</a>. This page launches compression or teacher-trace generation individually. <a href="/help#compression">Compare the presets and learn the terms</a>.</p>
+<p>Compression reduces the precision of stored weights. Aggressive compression uses 2-bit routed experts. Extreme compression uses three-valued expert weights and requires reasoning calibration and recovery training. Both use pinned research implementations. Outputs can be tested with the packed-weight diagnostic runtime, but still need a production serving adapter. BF16 files are higher-precision research exports, not the compact deployment model.</p>
+<p>Extreme compression uses CAT-Q from BitTern. It is not a reproduction of ScaleQ.</p><div class="grid">
 <section class="card">
-<h2>Configure B / C</h2>
-<label>Preset <select id="preset"><option value="aggressive">B: GSQ 2-bit experts</option><option value="extreme">C: AYOT ternary + sensitive GSQ + QAT</option></select></label>
-<p><label>Implementation <select id="engine"><option value="upstream_window">Pinned upstream + sliding reconstruction</option><option value="reference">Earlier tensor-only reference</option></select></label></p>
-<p><label>Attention bits <select id="attention"><option>4</option><option>3</option></select></label>
-<label>Shared expert bits <select id="shared"><option>4</option><option>3</option></select></label></p>
-<p><label><input id="recovery" type="checkbox"> QAT recovery</label>
+<h2>Configure a compression stage</h2>
+<label>Preset <select id="preset"><option value="aggressive">Aggressive (B): 2-bit expert weights</option><option value="extreme">Extreme (C): ternary experts + mandatory recovery</option></select></label>
+<p><label>Implementation <select id="engine"><option value="upstream_window">Recommended: fit outputs of layer windows</option><option value="reference">Research comparison: fit individual tensors</option></select></label></p>
+<p><label>Attention precision (bits) <select id="attention"><option>4</option><option>3</option></select></label>
+<label>Shared-expert precision (bits) <select id="shared"><option>4</option><option>3</option></select></label></p>
+<p><label><input id="recovery" type="checkbox"> Quantization-aware recovery training (QAT)</label>
 <label><input id="resume" type="checkbox"> Resume existing run</label></p>
-<p class="muted">Edit paths, sensitive tensor rules, calibration length, optimisation steps and recovery settings below. Rules are regex matches on HF parameter names. First-match priority applies. The defaults for C protect the first two expert layers; replace these with measured sensitivity rules.</p>
+<p class="muted">Replace the example source, data and output paths below. 4-bit attention/shared weights use more memory than 3-bit and may preserve quality better. The recovery dataset is required when recovery is enabled. Extreme compression cannot disable recovery. Sensitive-weight rules use regular expressions on Hugging Face parameter names; the first matching rule wins. The defaults for C protect the first two expert layers; replace these with measured sensitivity rules.</p>
 <form action="/jobs/start" method="post" id="compression-form">
 <input type="hidden" name="kind" value="mixed_pipeline">
 <textarea id="config" name="config_json" rows="32" style="width:100%"></textarea>
-<p><button type="submit" id="plan">Validate and save plan</button>
-<button type="submit" id="launch" class="primary">Run pipeline</button></p>
+<p><button type="submit" id="plan">Check inputs and save plan (no training)</button>
+<button type="submit" id="launch" class="primary">Start compression and optional recovery</button></p>
 </form>
-<p>Watch logs and VRAM on the Runs page. Resume with the same paths and settings. Changed source/config/calibration is rejected.</p>
+<p>The plan-only action reads inputs and saves precision settings; it does not establish GPU fit. Watch logs and GPU-memory measurements on the Runs page. Resume with the same paths and settings. Changed source/config/calibration is rejected.</p>
 </section>
-<section class="card"><h2>AYOT teacher traces for C</h2>
-<p>Generate reasoning traces from the uncompressed source checkpoint. Use coding, tool-use and reasoning prompts in JSONL. The prompt file must contain prompt or messages fields without assistant answers. Traces must complete a thinking section.</p>
+<section class="card"><h2>Generate reasoning calibration for extreme compression</h2>
+<p>Teacher traces are example reasoning responses produced by the source model (the AYOT workflow). Generate them before running extreme compression from this page. The wizard handles this dependency automatically. Use coding, tool-use and reasoning prompts in JSONL. The prompt file must contain prompt or messages fields without assistant answers. Traces must complete a thinking section.</p>
 <form method="post" action="/jobs/start">
 <input type="hidden" name="kind" value="ayot">
 <textarea name="config_json" rows="15" style="width:100%">{
@@ -34,7 +34,7 @@
   "resume": false
 }</textarea><button class="primary">Generate teacher traces</button></form>
 <h2>Evaluation and publishing</h2>
-<p>The output includes precision-map.json, packed shards, a reconstruction manifest and research-hf. C also produces a recovered checkpoint and requantized output. Use existing evaluation and <a href="/publish">Publish</a> workflows for the results.</p>
+<p>The output includes precision-map.json, packed shards, a reconstruction manifest and research-hf. C also produces a recovered checkpoint and requantized output. Open <a href="/proof">Reports and tests</a> for packed generation or model diagnostics. Use <a href="/publish">Publish</a> only after choosing a specific output folder.</p>
 <p>Neither preset automatically passes the release gate. Test coding, executable tool loops, long context and peak VRAM separately.</p>
 </section></div>
 <script>

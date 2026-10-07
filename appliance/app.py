@@ -34,6 +34,7 @@ from appliance.search.pareto import frontier
 from appliance.search.release_search import ReleaseSearch, ReleaseSearchConfig
 from appliance.stages.common import data_path
 from appliance.wizard.config import compile_plan, harness_profiles
+from appliance.ui_help import FIELDS, human_label
 
 settings = Settings.from_env()
 settings.ensure_dirs()
@@ -42,6 +43,8 @@ workbench_db = WorkbenchDB(settings.data_root / "db" / "appliance.sqlite3")
 jobs = JobManager(db, settings.data_root / "runs")
 auth = Auth(settings.web_token)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates.env.globals["field_help"] = FIELDS
+templates.env.filters["human_label"] = human_label
 
 
 def _registered_launch(stage: str, config: dict) -> str:
@@ -63,6 +66,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Qwen3.6 12GB Lab", lifespan=lifespan)
 app.include_router(api_router)
+
+
+@app.get("/help", response_class=HTMLResponse)
+def help_page(request: Request):
+    return templates.TemplateResponse(request=request, name="help.html", context={"data_root": str(settings.data_root)})
 
 
 @app.middleware("http")

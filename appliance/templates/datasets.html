@@ -1,10 +1,10 @@
 {% extends "base.html" %}{% block content %}
-<h1>Dataset manager</h1><p class="muted">Freeze provenance/license manifests for training mixtures. JSON fields are explicit so records remain reproducible.</p>
+<h1>Dataset manager</h1><p class="muted">Record files, origins and licenses in a manifest (a JSON record with file hashes). Files must already exist in the container. This page does not upload data, create mixtures or test benchmark overlap. <a href="/help#data">See supported data examples</a>.</p>
 <form method="post" action="/datasets/manifest">
-<p><label>Name<br><input name="name" required></label></p>
-<p><label>Files JSON<br><input name="files_json" value="[]"></label></p>
-<p><label>Sources JSON<br><input name="sources_json" value="[]"></label></p>
-<p><label>Licenses JSON<br><input name="licenses_json" value="[]"></label></p>
-<button class="primary">Create manifest</button></form>
+<p><label>Name<br><input name="name" required pattern="[A-Za-z0-9_-]+"><small>Use letters, numbers, hyphens or underscores.</small></label></p>
+<p><label>Existing container file paths (JSON array)<br><input name="files_json" value="[]"></label></p>
+<p><label>Dataset origins (JSON array)<br><input name="sources_json" value="[]"></label></p>
+<p><label>License names or links (JSON array)<br><input name="licenses_json" value="[]"></label></p>
+<p>Examples: files <code>["/data/datasets/train.jsonl"]</code>; origins <code>["owner/dataset@revision"]</code>; licenses <code>["Apache-2.0"]</code>. The manifest is saved under datasets/manifests. An empty file list records no file hashes.</p><button class="primary">Create manifest</button></form>
 {% if message %}<pre>{{message}}</pre>{% endif %}
 {% endblock %}
