@@ -7,7 +7,7 @@ on:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, garm]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
