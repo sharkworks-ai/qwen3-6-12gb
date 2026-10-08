@@ -127,3 +127,37 @@ full-model validation workflow. See [proof-run instructions](docs/PROOF_RUN.md).
 The proposed `r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation` dataset is useful for research, but its upstream provenance and licensing must be reviewed before any commercial redistribution or use. Keep dataset manifests and provenance with every training run.
 
 The default web page is a six-step [guided run wizard](docs/WIZARD.md). It launches one resumable training/compression/diagnostic job, with optional automatic published benchmarks through a configured isolated service.
+
+## Published appliance images
+
+Successful `dev` branch builds publish to GitHub Container Registry after the
+appliance tests pass:
+
+| GPU backend | Image |
+|---|---|
+| NVIDIA CUDA, including the dual RTX 5090 worker | `ghcr.io/sharkworks-ai/qwen3-6-12gb:latest` |
+| AMD ROCm | `ghcr.io/sharkworks-ai/qwen3-6-12gb:latest-rocm` |
+
+The existing `dev` (CUDA) and `rocm` tags are also published. Immutable tags
+`cuda-<full-commit-sha>` and `rocm-<full-commit-sha>`, plus image digests in the
+Actions job summary, identify the exact build for an experiment. `latest` tracks
+`dev`; it does not mean the model has passed the 12 GB / 262K release gates.
+Images contain the application and GPU runtime, not model weights or datasets.
+
+For NVIDIA, put `QWEN12G_IMAGE=ghcr.io/sharkworks-ai/qwen3-6-12gb:latest` in the
+Compose environment file alongside `QWEN12G_WEB_TOKEN`, then run:
+
+```bash
+docker compose --env-file /path/to/appliance.env -f appliance/compose.yml pull
+docker compose --env-file /path/to/appliance.env -f appliance/compose.yml up -d --no-build
+```
+
+For AMD, use `QWEN12G_IMAGE=ghcr.io/sharkworks-ai/qwen3-6-12gb:latest-rocm` and
+`appliance/compose.rocm.yml`; set the host's video/render group IDs as described
+in [AMD support](docs/AMD_SUPPORT.md). Private packages require registry login.
+The workflow can also be run manually against `dev` from GitHub Actions.
+
+The dual-5090 host's 192 GB RAM and 2 TB storage allow it to keep runtime files,
+model downloads, datasets, checkpoints and artifacts locally under
+`/srv/qwen12g`, using the existing worker storage configuration. The laptop
+remains the control plane; the laptop-backed AMD storage arrangement is optional.

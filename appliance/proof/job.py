@@ -72,8 +72,6 @@ def _run(cfg, output):
             "resume": cfg["resume"],
             "seed": cfg["seed"],
         }
-        # Checkpoint step 1 must be durable for the intentional restart check.
-        quant["checkpoint_steps"] = 1
         for key in ("cpu_test", "gsq_root", "bittern_root"):
             if key in cfg:
                 quant[key] = cfg[key]

@@ -81,6 +81,9 @@ def main():
         if results_path.exists()
         else []
     )
+    headers = {"Content-Type": "application/json"}
+    if cfg.get("api_key_file"):
+        headers["Authorization"] = "Bearer " + Path(cfg["api_key_file"]).read_text().strip()
     done = {row["task_id"] for row in results}
     for task in selected:
         if task["task_id"] in done:
@@ -90,7 +93,7 @@ def main():
             "model": cfg["model"],
             "temperature": 0,
             "seed": cfg.get("seed", 42),
-            "max_tokens": cfg.get("max_tokens", 1024),
+            "max_tokens": cfg.get("max_tokens", 4096),
             "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
                 {
@@ -107,7 +110,7 @@ def main():
                 Request(
                     cfg["endpoint"] + "/v1/chat/completions",
                     data=json.dumps(request).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers=headers,
                 ),
                 timeout=cfg.get("request_timeout", 300),
             ) as stream:

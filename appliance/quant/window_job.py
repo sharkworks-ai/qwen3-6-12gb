@@ -231,7 +231,17 @@ def _run(cfg):
                 json.dumps({"window": [start, end], "step": step + 1, "loss": metrics[-1]}),
                 flush=True,
             )
-            if (step + 1) % int(cfg.get("checkpoint_steps", 25)) == 0 or step + 1 == steps:
+            interrupt_checkpoint = (
+                cfg.get("proof_mode")
+                and start == 0
+                and step + 1 == cfg.get("proof_interrupt_step")
+                and first_step == 0
+            )
+            if (
+                interrupt_checkpoint
+                or (step + 1) % int(cfg.get("checkpoint_steps", 25)) == 0
+                or step + 1 == steps
+            ):
                 checkpoint = checkpoints / f"window-{start}-step-{step + 1}.pt"
                 temporary = checkpoint.with_suffix(".tmp")
                 torch.save(
@@ -257,12 +267,7 @@ def _run(cfg):
                 if active is not None and active != checkpoint:
                     active.unlink(missing_ok=True)
                 active = checkpoint
-                if (
-                    cfg.get("proof_mode")
-                    and start == 0
-                    and step + 1 == cfg.get("proof_interrupt_step")
-                    and first_step == 0
-                ):
+                if interrupt_checkpoint:
                     raise RuntimeError("PROOF_CHECKPOINT_INTERRUPTION")
         for q in quantizers.values():
             q.eval()

@@ -8,7 +8,7 @@ services:
         GIT_COMMIT: ${GIT_COMMIT:-dev}
         AMDGPU_TARGETS: ${AMDGPU_TARGETS:-gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201}
         BUILD_JOBS: ${BUILD_JOBS:-4}
-    image: qwen12g-appliance:rocm
+    image: ${QWEN12G_IMAGE:-qwen12g-appliance:rocm}
     container_name: qwen12g
     restart: unless-stopped
     devices:

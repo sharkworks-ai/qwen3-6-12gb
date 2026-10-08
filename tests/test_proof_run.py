@@ -54,7 +54,7 @@ def test_complete_proof_and_resume(tmp_path, monkeypatch):
         "train_steps": 2,
         "qat_steps": 2,
         "reconstruct_steps": 2,
-        "checkpoint_steps": 1,
+        "checkpoint_steps": 5,
         "gsq_root": str(gsq),
         "bittern_root": str(catq),
     }

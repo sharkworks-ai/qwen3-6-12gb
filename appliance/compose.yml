@@ -7,7 +7,7 @@ services:
         GIT_COMMIT: ${GIT_COMMIT:-dev}
         LLAMA_CUDA_ARCHITECTURES: ${QWEN12G_CUDA_ARCHITECTURES:-75;86;89;120}
         BUILD_JOBS: ${QWEN12G_BUILD_JOBS:-2}
-    image: qwen12g-appliance:dev
+    image: ${QWEN12G_IMAGE:-qwen12g-appliance:dev}
     container_name: qwen12g
     restart: unless-stopped
     gpus: all

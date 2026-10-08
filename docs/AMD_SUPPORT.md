@@ -109,3 +109,39 @@ reduce startup time. Set `QWEN12G_VENV_ROOT` to that directory (approximately
 5.4 GB for the tested image). Keep its contents identical to the full image's
 `/opt/venv`; update it together with the application image. The larger ROCm
 libraries and experiment outputs can remain on the laptop.
+
+## RX 6700 XT host validation
+
+On the tested RX 6700 XT (`gfx1031`) LXC host, unmodified ROCm 7.2 / PyTorch
+2.9.1 detected the GPU but crashed on its first GPU operation. A host-specific
+override, `HSA_OVERRIDE_GFX_VERSION=10.3.0` and
+`TORCH_BLAS_PREFER_HIPBLASLT=0`, passed FP32 matrix multiplication and
+backpropagation. This is experimental compatibility evidence for that host,
+not official support for all RX 6700 XT cards. Apply it in a deployment override;
+it is deliberately absent from the default AMD compose file. Larger training
+and model inference tests are still required.
+
+The network image copies source from the laptop checkout and records
+`GIT_COMMIT`, while using the exported full image's matching Python/ROCm
+dependencies. Keep both image identities in the experiment manifest.
+
+A separate read-only SSHFS runtime mount with `kernel_cache` can retain pages
+across process starts. Set `QWEN12G_RUNTIME_ROOT` to that mount; keep the writable
+experiment data on the regular share. Treat cached runtime exports as immutable:
+use a new directory for a rebuilt runtime and remount before replacing files.
+`QWEN12G_LLAMA_ROOT` can select a separately versioned llama.cpp export.
+
+Builds disable `GGML_NATIVE` so a laptop build can execute on an older worker CPU.
+For the experimental RX 6700 XT override above, compile llama.cpp for `gfx1030`
+to match the runtime override. The model server needs a writable compiler cache
+(such as `/data/cache`); a completely read-only filesystem can fail during HIP
+initialization. Keep model weights and runtime library mounts read-only.
+
+For the writable data share, SSHFS `auto_cache` with a short
+`dcache_stat_timeout` retains repeated reads while checking modification times.
+Do not use unconditional `kernel_cache` for data that can be changed by the
+laptop. Verify that laptop-side changes become visible before starting jobs.
+Checkpoint writes still travel over the link, so select an appropriate interval.
+The miniature proof forces a durable first-step restart checkpoint and then
+honors the configured interval; it no longer checkpoints every reconstruction
+step solely to exercise that restart.

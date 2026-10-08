@@ -8,7 +8,7 @@ ARG AMDGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 ARG BUILD_JOBS=4
 ARG GSQ_REF=03fc16484c369e3127225615d5e03e8d3a6043e3
 ARG CATQ_REF=5a8fcd4f7e0366554b732d300a37e6ea467c3c35
-LABEL org.opencontainers.image.source="https://github.com/taylorelley/qwen3-6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
+LABEL org.opencontainers.image.source="https://github.com/sharkworks-ai/qwen3-6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config openssh-client rsync tini && rm -rf /var/lib/apt/lists/*
 # Preserve the image's HIP-enabled torch/vision/audio versions during resolution.
@@ -20,7 +20,7 @@ RUN python3 -c 'from importlib.metadata import version; from pathlib import Path
     'huggingface_hub>=0.27' 'httpx>=0.28' 'PyYAML>=6.0' 'pydantic>=2.9' 'psutil>=6.0' 'rich>=13.9' 'typer>=0.12' 'cryptography>=44' lion-pytorch==0.2.5 && \
     python3 -c 'import torch; assert torch.version.hip, "ROCm torch was replaced"'
 RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp /opt/llama.cpp && \
-    cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_HIP=ON -DAMDGPU_TARGETS="${AMDGPU_TARGETS}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ && \
+    cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_HIP=ON -DAMDGPU_TARGETS="${AMDGPU_TARGETS}" -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ && \
     cmake --build /opt/llama.cpp/build --config Release -j${BUILD_JOBS} --target llama-quantize llama-imatrix llama-cli llama-server
 RUN git clone https://github.com/IST-DASLab/GSQ /opt/GSQ && git -C /opt/GSQ checkout --detach ${GSQ_REF} && \
     git clone https://github.com/IntelChina-AI/BitTern /opt/BitTern && git -C /opt/BitTern checkout --detach ${CATQ_REF}

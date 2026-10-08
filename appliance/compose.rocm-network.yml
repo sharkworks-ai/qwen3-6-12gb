@@ -18,13 +18,13 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${QWEN12G_SHARED_ROOT}/runtime/rocm-7.2.0
+        source: ${QWEN12G_RUNTIME_ROOT:-${QWEN12G_SHARED_ROOT}/runtime}/rocm-7.2.0
         target: /opt/rocm-7.2.0
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${QWEN12G_SHARED_ROOT}/runtime/llama.cpp
+        source: ${QWEN12G_LLAMA_ROOT:-${QWEN12G_RUNTIME_ROOT:-${QWEN12G_SHARED_ROOT}/runtime}/llama.cpp}
         target: /opt/llama.cpp
         read_only: true
         bind:

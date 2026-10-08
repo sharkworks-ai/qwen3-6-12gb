@@ -2,14 +2,16 @@
 ARG ROCM_APPLIANCE_IMAGE=qwen12g-appliance:rocm
 FROM ${ROCM_APPLIANCE_IMAGE} AS full
 FROM ubuntu:24.04
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.source="https://github.com/sharkworks-ai/qwen3-6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
 # Preserve the exact OS libraries used by the full image, including Python's ABI.
 COPY --from=full /usr /usr
 COPY --from=full /etc/ld.so.conf.d /etc/ld.so.conf.d
 COPY --from=full /opt/GSQ /opt/GSQ
 COPY --from=full /opt/BitTern /opt/BitTern
-COPY --from=full /app /app
+COPY . /app
 RUN ln -s /opt/rocm-7.2.0 /opt/rocm && useradd --create-home --uid 10001 appliance && \
-    mkdir -p /data/db && chown -R appliance:appliance /data && ldconfig
+    mkdir -p /data/db && chown -R appliance:appliance /data /app /opt/GSQ /opt/BitTern && ldconfig
 WORKDIR /app
 USER appliance
 ENV PATH=/opt/venv/bin:/opt/rocm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
