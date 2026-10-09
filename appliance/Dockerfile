@@ -8,6 +8,10 @@ ARG BUILD_JOBS=2
 ARG GSQ_REF=03fc16484c369e3127225615d5e03e8d3a6043e3
 ARG CATQ_REF=5a8fcd4f7e0366554b732d300a37e6ea467c3c35
 LABEL org.opencontainers.image.source="https://github.com/sharkworks-ai/qwen3-6-12gb" org.opencontainers.image.revision=$GIT_COMMIT
+# Optional extra root CAs (for example a TLS-inspecting proxy); see docker/extra-ca/.
+COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv python3-dev git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config openssh-client rsync tini && rm -rf /var/lib/apt/lists/*
 RUN python3 -m pip install --no-cache-dir --break-system-packages torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}
 RUN python3 -m pip install --no-cache-dir --break-system-packages \

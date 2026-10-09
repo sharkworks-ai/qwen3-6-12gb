@@ -114,7 +114,9 @@ def _run(cfg, output):
         }
     stage_items = stages.state["stages"]
     memory_values = [v for stage in stage_items.values() for v in stage["peak_vram_mib"].values()]
-    measured = bool(memory_values)
+    # Device-wide GPU sampling still returns readings for CPU runs on a GPU host;
+    # those are not this job's memory, so a CPU run never counts as measured.
+    measured = bool(memory_values) and cfg["device"] != "cpu"
     within_memory = measured and max(memory_values) / 1024 <= cfg["vram_limit_gib"]
     parity = all(v["after_qat"]["export_parity_pass"] for v in variants.values())
     report = {
