@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -119,3 +120,25 @@ class Stages:
                 f"Stage {name} failed ({code}); see {stage}/stderr.log and select Resume"
             )
         return load_config(stage / "result.json")
+
+    def release(self, name, relative):
+        """Delete bulky output of a finished stage once every reader has succeeded.
+
+        The stage's integrity hashes are re-baselined so resume still skips it.
+        """
+        item = self.state["stages"].get(name, {})
+        if item.get("status") != "succeeded":
+            raise ValueError(f"Cannot release output of unfinished stage: {name}")
+        stage = self.output / name
+        target = (stage / relative).resolve()
+        if stage.resolve() not in target.parents:
+            raise ValueError(f"Release path must stay inside stage {name}: {relative}")
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
+        released = item.setdefault("released", [])
+        if relative not in released:
+            released.append(relative)
+        item["hashes"] = hashes(stage)
+        save_json(self.path, self.state)

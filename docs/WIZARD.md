@@ -38,6 +38,25 @@ A CLI run uses the same answers:
 
 Run `python -m appliance.wizard.job --config /data/wizard-config.json`. The web runner applies `CUDA_VISIBLE_DEVICES`; direct CLI users must select the same physical GPUs themselves.
 
+## Disk budget
+
+A full-model run writes several BF16 copies of the model, so by default the wizard
+deletes outputs that later stages no longer read, once those stages have succeeded:
+
+- the merged SFT model, after pruning succeeds (training runs with pruning only);
+- each variant's first-pass research export, first-pass packed bundle, window
+  checkpoints and QAT directory, after that variant's re-quantization succeeds and
+  before the next variant starts. The `requantized/` bundle is kept.
+
+QAT keeps only its latest trainer checkpoint. Released paths are listed under
+`released` in `proof-progress.json` and the stage hashes are re-recorded, so resume
+still skips those stages. Set `"keep_intermediates": true` to keep everything.
+
+`"release_source_after_merge": true` (training runs only, off by default) also
+deletes the base checkpoint after merge, including the Hugging Face cache blobs a
+snapshot links to. Resume reuses the source hashes recorded in `input-manifest.json`;
+a new run needs the base model downloaded again.
+
 ## Automatic published benchmarks
 
 Set `QWEN12G_BENCHMARK_PROFILES` to an operator-owned JSON file. The wizard lists its profile labels. Web users cannot submit a service URL, executable or shell command.

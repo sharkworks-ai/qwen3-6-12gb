@@ -18,6 +18,9 @@ from appliance.quant.upstream import load_components
 from appliance.runtime.packed import load_packed, sha256
 from appliance.stages.common import data_path, load_config, save_json
 
+# First-pass reconstruction outputs and QAT state; the requantized bundle is kept.
+RELEASED_PIPELINE_OUTPUTS = ("research-hf", "packed", "training-checkpoints", "qat")
+
 
 @torch.inference_mode()
 def context_check(cfg):
@@ -170,6 +173,11 @@ def run(cfg):
                 },
             }
             stages.run(f"{name}-pipeline", "pipeline", quant_config=quant)
+            if not cfg.get("keep_intermediates"):
+                # Requantization succeeded, so the first-pass export and QAT state are
+                # superseded; drop them before the next variant starts.
+                for part in RELEASED_PIPELINE_OUTPUTS:
+                    stages.release(f"{name}-pipeline", f"artifact/{part}")
             final = directory / "requantized"
             metrics = stages.run(
                 f"{name}-packed",

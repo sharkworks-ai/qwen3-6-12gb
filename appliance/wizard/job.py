@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 
 from appliance.proof.state import Stages, hashes, implementation_digest
@@ -11,7 +12,27 @@ from appliance.quant.locking import exclusive
 from appliance.quant.precision import digest
 from appliance.runtime.packed import sha256
 from appliance.stages.common import load_config, save_json
-from appliance.wizard.config import compile_plan, harness_profiles
+from appliance.wizard.config import compile_plan, harness_profiles, released_source
+
+
+def remove_model_dir(path):
+    """Delete a checkpoint directory, including Hugging Face cache blobs it links to."""
+    repo = next((p for p in path.parents if p.name.startswith("models--")), None)
+    for item in sorted(path.rglob("*")):
+        if item.is_symlink():
+            target = item.resolve()
+            # Snapshot files are symlinks; only the blobs free space. Stay in this repo cache.
+            if repo is not None and repo in target.parents and target.is_file():
+                target.unlink()
+    shutil.rmtree(path)
+
+
+def release_source(stages, source):
+    """Delete the base checkpoint after merge; resume reuses its recorded hashes."""
+    stages.state.setdefault("released_inputs", {})["source_model"] = str(source)
+    save_json(stages.path, stages.state)
+    if source.exists():
+        remove_model_dir(source)
 
 
 def rank_candidates(validation, benchmarks=None):
@@ -54,7 +75,11 @@ def run(cfg):
     output = Path(config["output_dir"])
     inputs = {}
     if plan["goal"] != "proof":
-        inputs["source_model"] = hashes(Path(config["source_model"]))
+        source_path = Path(config["source_model"])
+        if released_source(output, source_path):
+            inputs["source_model"] = load_config(output / "input-manifest.json")["source_model"]
+        else:
+            inputs["source_model"] = hashes(source_path)
         inputs.update(
             {
                 k: sha256(Path(v))
@@ -130,6 +155,8 @@ def run(cfg):
                     "merge",
                     {"model": source, "adapter": str(adapter), "output_dir": str(merged)},
                 )
+                if config["release_source_after_merge"]:
+                    release_source(stages, Path(source))
                 source = str(merged)
             if config["keep_experts"]:
                 profile_path = output / "profile" / "expert-profile.json"
@@ -156,6 +183,9 @@ def run(cfg):
                         "keep_experts": config["keep_experts"],
                     },
                 )
+                if plan["goal"] == "train" and not config["keep_intermediates"]:
+                    # Only profile and prune read the merged model.
+                    stages.release("merge", "model")
                 source = str(pruned)
             if "extreme" in config["variants"]:
                 ayot = output / "ayot" / "traces.jsonl"

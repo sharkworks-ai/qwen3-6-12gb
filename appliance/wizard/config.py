@@ -24,6 +24,14 @@ def integer(answers, key, default, low, high):
     return value
 
 
+def released_source(output, source):
+    """True when this run already deleted its own base checkpoint after merging it."""
+    progress = Path(output) / "proof-progress.json"
+    if not progress.is_file():
+        return False
+    return load_config(progress).get("released_inputs", {}).get("source_model") == str(source)
+
+
 def compile_plan(answers, root="/data", *, check_inputs=True):
     if not isinstance(answers, dict):
         raise TypeError("Wizard answers must be an object")
@@ -109,7 +117,9 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         paths[key] = str(data_path(str(answers[key]), root))
         if check_inputs and not Path(paths[key]).is_file():
             raise ValueError(f"Missing input file: {key}")
-    if check_inputs:
+    # A base checkpoint this run released after merging was validated before deletion.
+    check_model = check_inputs and not released_source(output, source)
+    if check_model:
         model = load_config(source / "config.json")
         if model.get("qwen12g_proof_model"):
             raise ValueError("Use the proof goal for synthetic models")
@@ -133,7 +143,7 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
     keep = integer(answers, "keep_experts", 128, 1, 4096) if answers.get("prune") is True else None
     if (
         keep is not None
-        and check_inputs
+        and check_model
         and not int(text.get("num_experts_per_tok", 8)) <= keep < int(text.get("num_experts", 0))
     ):
         raise ValueError("Retained experts must be below source count and at least top-k")
@@ -146,6 +156,10 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "goal": goal,
         "load_in_4bit": answers.get("load_in_4bit", os.environ.get("QWEN12G_GPU_BACKEND") != "rocm") is True,
         "keep_experts": keep,
+        # Disk budget: drop superseded checkpoints once later stages have succeeded.
+        "keep_intermediates": answers.get("keep_intermediates", False) is True,
+        "release_source_after_merge": goal == "train"
+        and answers.get("release_source_after_merge", False) is True,
         "benchmark_profile": profile,
         "vram_limit_gib": limit,
         "steps": integer(answers, "quant_steps", 100, 2, 10000),

@@ -62,6 +62,8 @@ def main():
         bf16=compute_dtype() == torch.bfloat16,
         logging_steps=1,
         save_steps=int(cfg.get("save_steps", 100)),
+        # Each full-model checkpoint carries optimizer state; resume needs only the latest.
+        save_total_limit=1,
         report_to=[],
         remove_unused_columns=False,
         fsdp="full_shard auto_wrap" if int(cfg.get("num_processes", 2)) > 1 else "",

@@ -136,14 +136,8 @@ def test_web_wizard_plan_launch_and_resume(monkeypatch, tmp_path):
         assert response.status_code == 422 and "busy" in response.json()["detail"]
 
 
-def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
+def fake_registered_stages(monkeypatch, calls, fail):
     from appliance.proof import state
-    from appliance.wizard import job
-
-    answers = real_answers(tmp_path)
-    monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
-    calls = []
-    fail = {"value": True}
 
     def fake_process(command, **kwargs):
         worker = json.loads(Path(command[-1]).read_text())
@@ -190,6 +184,16 @@ def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
     monkeypatch.setattr(state.subprocess, "run", fake_process)
     monkeypatch.setattr(state.NvidiaTelemetry, "start", lambda _: None)
     monkeypatch.setattr(state.NvidiaTelemetry, "stop", lambda _: None)
+
+
+def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
+    from appliance.wizard import job
+
+    answers = real_answers(tmp_path)
+    monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
+    calls = []
+    fail = {"value": True}
+    fake_registered_stages(monkeypatch, calls, fail)
     with pytest.raises(RuntimeError, match="merge"):
         job.run({"answers": answers})
     output = tmp_path / "artifacts/wizard/real-test"
@@ -209,12 +213,45 @@ def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
     assert validation_cfg["source_model"] == str(output / "prune/model")
     assert validation_cfg["ayot_file"] == str(output / "ayot/traces.jsonl")
     assert report["selection"]["recommended"] is None
+    # The merged model is released once pruning succeeds; resume still skips merge.
+    assert not (output / "merge/model").exists()
+    progress = json.loads((output / "proof-progress.json").read_text())
+    assert progress["stages"]["merge"]["released"] == ["model"]
+    assert Path(answers["source_model"]).is_dir()
     count = len(calls)
     job.run({"answers": {**answers, "resume": True}})
     assert len(calls) == count
     (output / "prune/model/stage-manifest.json").write_text("tampered")
     with pytest.raises(ValueError, match="integrity"):
         job.run({"answers": {**answers, "resume": True}})
+
+
+def test_opt_in_source_release_frees_cache_blobs_and_keeps_resume(monkeypatch, tmp_path):
+    from appliance.wizard import job
+
+    answers = {**real_answers(tmp_path), "release_source_after_merge": True}
+    # Lay the base checkpoint out like a Hugging Face cache snapshot.
+    repo = tmp_path / "hf-cache" / "models--org--base"
+    blob = repo / "blobs" / "weights"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("weights")
+    snapshot = repo / "snapshots" / "rev"
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text(
+        (Path(answers["source_model"]) / "config.json").read_text()
+    )
+    (snapshot / "model.safetensors").symlink_to(blob)
+    answers["source_model"] = str(snapshot)
+    monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
+    calls = []
+    fake_registered_stages(monkeypatch, calls, {"value": False})
+    job.run({"answers": answers})
+    assert not snapshot.exists() and not blob.exists()
+    count = len(calls)
+    # Planning and resume use the recorded hashes of the released source.
+    assert compile_plan(answers, str(tmp_path))["config"]["release_source_after_merge"]
+    job.run({"answers": {**answers, "resume": True}})
+    assert len(calls) == count
 
 
 def test_worker_selects_registered_command_and_checkpoint(monkeypatch, tmp_path):
@@ -332,6 +369,7 @@ def test_b_only_validation_requires_physical_memory_evidence(monkeypatch, tmp_pa
     )
     measured = {"peak": 1000}
     called = []
+    released = []
 
     class FakeStages:
         def __init__(self, cfg, output, identity):
@@ -347,8 +385,17 @@ def test_b_only_validation_requires_physical_memory_evidence(monkeypatch, tmp_pa
                 return {"needle_found": True, "peak_allocated_mib": 900}
             return {"heldout_loss": 2.0}
 
+        def release(self, name, relative):
+            # Superseded outputs are released before packed evaluation of the bundle.
+            assert called[-1] == name
+            released.append((name, relative))
+
     monkeypatch.setattr(validation, "Stages", FakeStages)
     report = validation.run(config)
+    assert released == [
+        ("aggressive-pipeline", f"artifact/{part}")
+        for part in validation.RELEASED_PIPELINE_OUTPUTS
+    ]
     assert set(report["variants"]) == {"aggressive"}
     assert report["checks"]["within_vram_limit"]
     assert not any("extreme" in n for n in called)
