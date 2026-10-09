@@ -121,6 +121,11 @@ Default host root:
 
 Containers mount only the required subdirectories.
 
+The worker image runs as uid 10001 (`worker`). Create `hf-cache`, `datasets`,
+`checkpoints`, `artifacts` and `runs` under the data root and make them writable by
+that uid (for example `sudo chown -R 10001:10001 /srv/qwen12g/*`), or run jobs fail
+with `PermissionError` on `/qwen-data/runs`.
+
 The worker is disposable, but checkpoints and run data may be expensive to reproduce. Back up or replicate important artifacts before host teardown.
 
 ## Security boundary

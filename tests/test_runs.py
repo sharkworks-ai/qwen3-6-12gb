@@ -1,10 +1,13 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from qwen12g import jobs
 from qwen12g.db import RunDB, RunRecord
 from qwen12g.jobs import _gpu_argument, parse_result
 from qwen12g.manifest import new_run_id, write_json
+from qwen12g.worker import load_worker_config
 
 
 def test_new_run_id_contains_stage() -> None:
@@ -58,3 +61,19 @@ def test_write_json_is_parseable(tmp_path: Path) -> None:
     path = tmp_path / "manifest.json"
     write_json(path, {"ok": True})
     assert parse_result(path.read_text(encoding="utf-8")) == {"ok": True}
+
+
+def test_read_remote_run_file_bypasses_image_entrypoint(monkeypatch) -> None:
+    config = load_worker_config(Path("configs/worker/dual5090.yaml"))
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0, '{"status": "succeeded"}', "")
+
+    monkeypatch.setattr(jobs, "run_command", fake_run)
+    text = jobs.read_remote_run_file(config, "run-1", "result.json")
+    assert parse_result(text) == {"status": "succeeded"}
+    args = seen["args"]
+    assert args[args.index("--entrypoint") + 1] == "cat"
+    assert args.index("--entrypoint") < args.index(jobs.DEFAULT_IMAGE)
