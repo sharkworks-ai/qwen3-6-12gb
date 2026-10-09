@@ -1,0 +1,56 @@
+# NVIDIA CUDA appliance, pulled from GitHub Container Registry (no local build).
+#
+#   cp .env.example .env            # then set QWEN12G_WEB_TOKEN (openssl rand -hex 24)
+#   docker compose pull
+#   docker compose up -d
+#   open http://127.0.0.1:8080      # log in with QWEN12G_WEB_TOKEN
+#
+# Host requirements: NVIDIA driver + NVIDIA Container Toolkit, Docker Compose v2.30+.
+# Private packages require `docker login ghcr.io` first.
+# To build from source instead, use appliance/compose.yml. For AMD, use
+# appliance/compose.rocm.yml.
+name: qwen12g
+
+services:
+  qwen12g:
+    image: ${QWEN12G_IMAGE:-ghcr.io/sharkworks-ai/qwen3-6-12gb:latest}
+    pull_policy: always
+    container_name: qwen12g
+    restart: unless-stopped
+    gpus: all
+    ipc: host
+    shm_size: "32gb"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Loopback by default; reach it remotely through a VPN, SSH tunnel or TLS
+    # reverse proxy (see appliance/README.md). Set QWEN12G_BIND=0.0.0.0 to expose.
+    ports:
+      - "${QWEN12G_BIND:-127.0.0.1}:${QWEN12G_PORT:-8080}:8080"
+    environment:
+      QWEN12G_WEB_TOKEN: ${QWEN12G_WEB_TOKEN:?set QWEN12G_WEB_TOKEN}
+      QWEN12G_SECURE_COOKIE: ${QWEN12G_SECURE_COOKIE:-0}
+      QWEN12G_GPU_BACKEND: cuda
+      QWEN12G_DATA_ROOT: /data
+      # Operator-owned benchmark profile file, as a path inside the container
+      # (e.g. /data/benchmark-profiles.json). Empty disables published benchmarks.
+      QWEN12G_BENCHMARK_PROFILES: ${QWEN12G_BENCHMARK_PROFILES:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      HF_HOME: /data/hf-cache
+      TRANSFORMERS_CACHE: /data/hf-cache
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      # A volume name or a host path (e.g. /srv/qwen12g/appliance). A host path
+      # must be writable by the container user (uid 10001).
+      - ${QWEN12G_DATA_VOLUME:-qwen12g-data}:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  qwen12g-data:

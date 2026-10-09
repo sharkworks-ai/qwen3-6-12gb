@@ -144,7 +144,15 @@ Actions job summary, identify the exact build for an experiment. `latest` tracks
 `dev`; it does not mean the model has passed the 12 GB / 262K release gates.
 Images contain the application and GPU runtime, not model weights or datasets.
 
-For NVIDIA, put `QWEN12G_IMAGE=ghcr.io/sharkworks-ai/qwen3-6-12gb:latest` in the
+The quickest NVIDIA start is the root `docker-compose.yml`, which pulls
+`:latest` from GHCR and needs no build:
+
+```bash
+cp .env.example .env   # set QWEN12G_WEB_TOKEN, e.g. openssl rand -hex 24
+docker compose pull && docker compose up -d
+```
+
+Alternatively, put `QWEN12G_IMAGE=ghcr.io/sharkworks-ai/qwen3-6-12gb:latest` in the
 Compose environment file alongside `QWEN12G_WEB_TOKEN`, then run:
 
 ```bash
