@@ -15,5 +15,11 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
+      # Appliance tests need the same runtime packages as appliance.yml (CPU torch).
+      - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install itsdangerous huggingface_hub safetensors fastapi uvicorn jinja2 python-multipart httpx PyYAML "transformers>=5.17.0" "accelerate>=1.10.0"
+      - run: python -m pip install --no-deps lion-pytorch==0.2.5
       - run: ruff check src tests
       - run: pytest -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}

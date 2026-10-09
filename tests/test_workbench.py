@@ -1,11 +1,10 @@
-from pathlib import Path
 
 from appliance.datasets.contamination import overlap_score
+from appliance.eval.oxcoder_gate import score
 from appliance.runtime.scheduler import choose_allocation
 from appliance.search.expert_importance import combine_importance
 from appliance.search.pareto import dominates, frontier
 from appliance.search.sensitivity import assign_precision
-from appliance.eval.oxcoder_gate import score
 
 
 def test_pareto():
