@@ -10,4 +10,5 @@ runs
 artifacts
 models
 checkpoints
+.local
 **/*.log

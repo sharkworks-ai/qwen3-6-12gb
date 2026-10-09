@@ -82,6 +82,10 @@ agent edits on laptop
 
 Large model artifacts are not pushed to Git.
 
+If the worker reaches the internet through a TLS-inspecting proxy, copy the proxy's
+root CA as a `*.crt` file into `docker/extra-ca/` before `qwen12g worker build`.
+Those files are gitignored; the image trusts them for pip and Python HTTPS clients.
+
 ## Worker modes
 
 ### distributed

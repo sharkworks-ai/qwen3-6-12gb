@@ -12,6 +12,10 @@ venv/
 !.env.example
 *.pem
 *.key
+docker/extra-ca/*.crt
+
+# Local per-host state (venv-adjacent data, Docker config, run DB)
+.local/
 
 # Models / datasets / runs
 *.gguf

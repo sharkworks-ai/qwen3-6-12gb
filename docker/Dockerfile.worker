@@ -12,6 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional extra root CAs (for example a TLS-inspecting proxy). Any *.crt placed in
+# docker/extra-ca/ is trusted; with none present the build is unchanged.
+COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 RUN python3 -m pip install --break-system-packages --upgrade pip setuptools wheel && \
     python3 -m pip install --break-system-packages \
       torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}
