@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from appliance.core import ApplianceDB, JOBS, peak_vram
+from appliance.core import JOBS, ApplianceDB, peak_vram
 from appliance.publish import inside
 
 

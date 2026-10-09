@@ -1,8 +1,11 @@
 from pathlib import Path
+
 import torch
-from appliance.qat.fake_quant import FakeQuantSpec,fake_quant_weight
-from appliance.recovery.escalation import RecoveryPolicy,decide
+
+from appliance.qat.fake_quant import FakeQuantSpec, fake_quant_weight
+from appliance.recovery.escalation import RecoveryPolicy, decide
 from appliance.recovery.failure_buffer import FailureBuffer
+
 
 def test_fake_quant_shape_and_grad():
     x=torch.randn(17,requires_grad=True); y=fake_quant_weight(x,FakeQuantSpec(3,8)); assert y.shape==x.shape; y.sum().backward(); assert x.grad is not None

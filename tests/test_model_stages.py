@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from appliance.registry import command_for, get_job

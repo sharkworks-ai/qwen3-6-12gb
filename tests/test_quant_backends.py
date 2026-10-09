@@ -1,11 +1,11 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import pytest
 
 from appliance.quant.base import QuantContext
-from appliance.quant.registry import BACKENDS, get_backend
 from appliance.quant.bittern import BitTernBackend
+from appliance.quant.registry import BACKENDS, get_backend
 
 
 def test_backend_registry():
