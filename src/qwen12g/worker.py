@@ -139,13 +139,15 @@ def worker_logs(config: WorkerConfig, tail: int = 200) -> None:
 
 
 def gpu_inventory(config: WorkerConfig) -> list[str]:
+    # Bypass the CUDA image entrypoint; its banner on stdout would be counted as GPUs.
     result = run_command(
         compose_args(
             config,
             "run",
             "--rm",
-            config.service,
+            "--entrypoint",
             "nvidia-smi",
+            config.service,
             "--query-gpu=index,name,memory.total",
             "--format=csv,noheader,nounits",
         ),
