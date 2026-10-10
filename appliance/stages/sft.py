@@ -6,7 +6,13 @@ import os
 from pathlib import Path
 
 from appliance.gpu import compute_dtype, require_kbit_support
-from appliance.stages.common import device_memory, load_config, resolve_model_source, save_json
+from appliance.stages.common import (
+    device_memory,
+    keep_head_with_embeddings,
+    load_config,
+    resolve_model_source,
+    save_json,
+)
 from appliance.stages.dataset_io import load_training_dataset, maybe_limit
 
 
@@ -31,7 +37,8 @@ def build_lora_config(config: dict, model_config):
     return LoraConfig(
         r=rank,
         lora_alpha=int(config.get("lora_alpha", rank * 2)),
-        lora_dropout=float(config.get("lora_dropout", 0.05)),
+        # PEFT's ParamWrapper (fused expert target_parameters) rejects dropout.
+        lora_dropout=float(config.get("lora_dropout", 0.0 if target_parameters else 0.05)),
         bias="none",
         task_type="CAUSAL_LM",
         target_modules=target_modules,
@@ -111,7 +118,15 @@ def main() -> None:
         if training_template:
             processor.chat_template = training_template
 
-    if quantization_config is not None:
+    if config.get("model_parallel"):
+        keep_head_with_embeddings(model)
+
+    if quantization_config is not None and config.get("model_parallel"):
+        # PEFT's k-bit preparation upcasts every non-quantized parameter to FP32, which
+        # would double the fused BF16 experts. PEFT freezes the base weights itself and
+        # SFTConfig enables gradient checkpointing; only input gradients are needed here.
+        model.enable_input_require_grads()
+    elif quantization_config is not None:
         model = prepare_model_for_kbit_training(
             model,
             use_gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
@@ -130,7 +145,8 @@ def main() -> None:
         learning_rate=float(config.get("learning_rate", 2e-5)),
         num_train_epochs=float(config.get("num_train_epochs", 1.0)),
         max_steps=int(config.get("max_steps", -1)),
-        warmup_ratio=float(config.get("warmup_ratio", 0.03)),
+        # Transformers 5 removed warmup_ratio; a float below 1 in warmup_steps is a ratio.
+        warmup_steps=float(config.get("warmup_ratio", 0.03)),
         lr_scheduler_type=config.get("lr_scheduler_type", "cosine"),
         logging_steps=int(config.get("logging_steps", 5)),
         save_steps=int(config.get("save_steps", 100)),
@@ -141,6 +157,9 @@ def main() -> None:
         gradient_checkpointing_kwargs={"use_reentrant": False},
         packing=bool(config.get("packing", False)),
         assistant_only_loss=assistant_only,
+        # The router is frozen (not a LoRA target), so its balancing loss cannot update
+        # routing, and TRL adds it across devices when the model is split, which fails.
+        **({"router_aux_loss_coef": 0.0} if config.get("model_parallel") else {}),
         report_to=config.get("report_to", "none"),
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,

@@ -40,6 +40,21 @@ def device_memory(max_memory: dict | None, *, gpu_only: bool = False) -> dict | 
     }
 
 
+def keep_head_with_embeddings(model) -> None:
+    """Move a device_map-split model's LM head onto the embeddings' device.
+
+    Trainer requires the loss on the first device, and TRL's fused loss runs a Triton
+    kernel on the current device; device_map="auto" puts the head on the last GPU.
+    """
+    head = model.get_output_embeddings()
+    first = model.get_input_embeddings().weight.device
+    if head.weight.device != first:
+        head.to(first)
+        hook = getattr(head, "_hf_hook", None)
+        if hook is not None:
+            hook.execution_device = first
+
+
 def resolve_model_source(model: str, data_root: str = "/data") -> str:
     if model.startswith("/") or model.startswith("."):
         return str(data_path(model, data_root))

@@ -10,12 +10,22 @@ from transformers import (
     DataCollatorForLanguageModeling,
 )
 from appliance.qat.parametrize import apply_fake_quant, apply_precision_map, remove_fake_quant
-from appliance.stages.common import device_memory, save_json
+from appliance.stages.common import device_memory, keep_head_with_embeddings, save_json
 from appliance.quant.precision import digest
 from transformers.trainer_utils import get_last_checkpoint
 import os
 import torch
 from appliance.gpu import compute_dtype
+
+
+class FusedLossTrainer(Trainer):
+    """Trainer whose loss comes from TRL's fused LM head (see add_fused_lm_head)."""
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        # Trainer sees the patched forward's **kwargs and skips gradient-accumulation
+        # scaling, so normalize by the label tokens of the whole accumulated batch here.
+        outputs = model(**inputs, fused_lm_head=True, num_items_in_batch=num_items_in_batch)
+        return (outputs.loss, outputs) if return_outputs else outputs.loss
 
 
 def main():
@@ -30,10 +40,15 @@ def main():
     rank = int(cfg.get("lora_rank", 16)) if lora else 0
     if lora and int(os.environ.get("WORLD_SIZE", "1")) > 1:
         raise ValueError("LoRA QAT shards one process across GPUs; set num_processes to 1")
-    loading = {
-        "device_map": "auto",
-        "max_memory": device_memory(cfg.get("max_memory"), gpu_only=True),
-    }
+    memory = device_memory(cfg.get("max_memory"), gpu_only=True)
+    if memory and len(memory) > 1:
+        # cuda:0 also holds the embeddings, LM head and the loss's FP32 logits (about
+        # 4 GiB at 4K tokens over a 248K vocabulary), so load fewer layers there.
+        first = min(memory)
+        allowance = float(str(memory[first]).removesuffix("GiB"))
+        reserve = float(cfg.get("first_gpu_reserve_gib", 10))
+        memory[first] = f"{max(1.0, allowance - reserve)}GiB"
+    loading = {"device_map": "auto", "max_memory": memory}
     model = AutoModelForCausalLM.from_pretrained(
         cfg["student_model"],
         torch_dtype=compute_dtype(),
@@ -44,6 +59,7 @@ def main():
     if lora:
         # Freeze before registering, so only the new adapter parameters train.
         model.requires_grad_(False)
+        keep_head_with_embeddings(model)
     precision = (
         json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
     )
@@ -118,7 +134,14 @@ def main():
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     model.config.use_cache = False
-    tr = Trainer(
+    if lora:
+        # Score labels through the LM head in chunks instead of materializing the FP32
+        # logits (4K tokens x 248K vocabulary is about 4 GiB on cuda:0).
+        from trl.trainer.utils import add_fused_lm_head
+
+        add_fused_lm_head(model)
+    trainer_class = FusedLossTrainer if lora else Trainer
+    tr = trainer_class(
         model=model,
         args=args,
         train_dataset=ds,
