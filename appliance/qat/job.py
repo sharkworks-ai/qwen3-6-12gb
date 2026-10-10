@@ -60,7 +60,12 @@ def main():
 
     def enc(r):
         text = (
-            tok.apply_chat_template(r["messages"], tokenize=False, add_generation_prompt=False)
+            tok.apply_chat_template(
+                r["messages"],
+                tools=r.get("tools") or None,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
             if "messages" in r
             else r.get("text", "")
         )

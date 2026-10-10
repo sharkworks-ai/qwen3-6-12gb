@@ -31,6 +31,9 @@ COPY . /app
 RUN python3 -m pip install --no-cache-dir --break-system-packages -e .
 RUN useradd --create-home --uid 10001 appliance && mkdir -p /data && chown -R appliance:appliance /data /app /opt/GSQ /opt/BitTern
 USER appliance
+# Reconstruction windows run near the 32 GB limit; expandable segments avoid
+# fragmentation OOMs when the next window's quantizers are allocated.
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ENV QWEN12G_GPU_BACKEND=cuda QWEN12G_DATA_ROOT=/data HF_HOME=/data/hf-cache TRANSFORMERS_CACHE=/data/hf-cache PYTHONUNBUFFERED=1 PYTHONPATH=/app TOKENIZERS_PARALLELISM=false
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini","--"]

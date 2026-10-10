@@ -100,6 +100,16 @@ def main() -> None:
     if text_config is not None:
         text_config.use_cache = False
     processor = AutoProcessor.from_pretrained(model_source, token=os.environ.get("HF_TOKEN") or None)
+    original_template = processor.chat_template
+    assistant_only = bool(config.get("assistant_only_loss", True))
+    if assistant_only:
+        # Assistant-only loss needs {% generation %} markers, which stock Qwen templates
+        # lack. Train with TRL's patched template; the saved processor keeps the original.
+        from trl.chat_template_utils import get_training_chat_template
+
+        training_template = get_training_chat_template(processor)
+        if training_template:
+            processor.chat_template = training_template
 
     if quantization_config is not None:
         model = prepare_model_for_kbit_training(
@@ -130,7 +140,7 @@ def main() -> None:
         gradient_checkpointing=bool(config.get("gradient_checkpointing", True)),
         gradient_checkpointing_kwargs={"use_reentrant": False},
         packing=bool(config.get("packing", False)),
-        assistant_only_loss=bool(config.get("assistant_only_loss", True)),
+        assistant_only_loss=assistant_only,
         report_to=config.get("report_to", "none"),
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
@@ -148,6 +158,7 @@ def main() -> None:
     resume = config.get("resume_from_checkpoint", False)
     trainer.train(resume_from_checkpoint=resume)
     trainer.save_model(str(output_dir))
+    processor.chat_template = original_template
     processor.save_pretrained(str(output_dir))
 
     if bool(config.get("merge_adapter", False)) and local_rank == 0:

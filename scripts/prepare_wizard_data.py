@@ -48,12 +48,27 @@ def rows(repo, revision, files):
         yield from pq.read_table(path).to_pylist()
 
 
+def tool_call(call):
+    # Sources store OpenAI-style JSON-string arguments; Qwen's chat template
+    # iterates them as a mapping.
+    function = dict(call.get("function") or {})
+    arguments = function.get("arguments")
+    if isinstance(arguments, str):
+        try:
+            function["arguments"] = json.loads(arguments) if arguments.strip() else {}
+        except json.JSONDecodeError:
+            pass
+    return {**call, "function": function}
+
+
 def clean_message(message):
     # Parquet structs carry every optional field; empty ones confuse chat templates.
     keep = {"role": message["role"], "content": message.get("content") or ""}
     for key in ("reasoning_content", "tool_calls", "tool_call_id", "name"):
         if message.get(key):
             keep[key] = message[key]
+    if "tool_calls" in keep:
+        keep["tool_calls"] = [tool_call(c) for c in keep["tool_calls"]]
     return keep
 
 
