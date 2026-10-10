@@ -22,6 +22,29 @@ def _restore(x, shape):
     return x.reshape(-1)[: int(torch.tensor(shape).prod().item())].reshape(shape)
 
 
+def levels(s: FakeQuantSpec) -> tuple[int, int]:
+    """Integer code range of the packed runtime grid (appliance.quant.lowbit.grid)."""
+    if s.ternary or s.bits <= 1.6:
+        return -1, 1
+    return -(2 ** (int(s.bits) - 1)), 2 ** (int(s.bits) - 1) - 1
+
+
+def fake_quant_on_grid(w: torch.Tensor, s: FakeQuantSpec, scales: torch.Tensor) -> torch.Tensor:
+    """Round onto a reconstruction's fixed grid: per-group scales times integer levels.
+
+    Weights already on that grid pass through unchanged, so QAT starts from the
+    reconstructed model rather than re-rounding it onto a min/max grid.
+    """
+    x, shape = _groups(w, s.group_size)
+    if scales.numel() != x.shape[0]:
+        raise ValueError(f"Grid has {scales.numel()} scales for {x.shape[0]} groups")
+    # FP32 division, so BF16 weights already on the grid round back to their level.
+    scale = scales.reshape(-1, 1).float()
+    lo, hi = levels(s)
+    dq = ((x.float() / scale).round().clamp(lo, hi) * scale).to(x.dtype)
+    return _restore(x + (dq - x).detach(), shape)
+
+
 def fake_quant_weight(w: torch.Tensor, s: FakeQuantSpec) -> torch.Tensor:
     x, shape = _groups(w, s.group_size)
     if s.ternary or s.bits <= 1.6:

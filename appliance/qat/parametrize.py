@@ -3,19 +3,27 @@ import re
 from dataclasses import dataclass
 import torch
 from torch.nn.utils import parametrize
-from appliance.qat.fake_quant import FakeQuantSpec, fake_quant_weight
+from appliance.qat.fake_quant import FakeQuantSpec, fake_quant_on_grid, fake_quant_weight
 
 
 class FakeQuantParametrization(torch.nn.Module):
-    def __init__(self, spec: FakeQuantSpec):
+    """Fake quantization onto a reconstruction's fixed grid when given, else min/max."""
+
+    def __init__(self, spec: FakeQuantSpec, grid: torch.Tensor | None = None):
         super().__init__()
         self.spec = spec
+        self.register_buffer("grid", grid, persistent=False)
+
+    def quantize(self, x):
+        if self.grid is None:
+            return fake_quant_weight(x, self.spec)
+        return fake_quant_on_grid(x, self.spec, self.grid)
 
     def forward(self, x):
-        return fake_quant_weight(x, self.spec)
+        return self.quantize(x)
 
 
-class LowRankFakeQuantParametrization(torch.nn.Module):
+class LowRankFakeQuantParametrization(FakeQuantParametrization):
     """fake_quant(W + B @ A): a trainable low-rank correction seen through the quantizer.
 
     W stays frozen, so recovery needs memory for the model plus small adapters rather
@@ -24,9 +32,14 @@ class LowRankFakeQuantParametrization(torch.nn.Module):
     one adapter per leading index.
     """
 
-    def __init__(self, spec: FakeQuantSpec, weight: torch.Tensor, rank: int):
-        super().__init__()
-        self.spec = spec
+    def __init__(
+        self,
+        spec: FakeQuantSpec,
+        weight: torch.Tensor,
+        rank: int,
+        grid: torch.Tensor | None = None,
+    ):
+        super().__init__(spec, grid)
         *batch, rows, columns = weight.shape
         options = {"device": weight.device, "dtype": torch.float32}
         # B starts at zero, so training begins from the plain fake-quantized weight.
@@ -37,13 +50,19 @@ class LowRankFakeQuantParametrization(torch.nn.Module):
 
     def forward(self, x):
         delta = torch.matmul(self.lora_b, self.lora_a).to(x.dtype)
-        return fake_quant_weight(x + delta, self.spec)
+        return self.quantize(x + delta)
 
 
-def _parametrization(spec, module, param_name, rank):
+def _parametrization(spec, module, param_name, rank, grid=None):
+    weight = getattr(module, param_name)
+    # Packed groups pad each row; flattened fake-quant groups only line up without padding.
+    if grid is not None and weight.shape[-1] % spec.group_size:
+        grid = None
+    if grid is not None:
+        grid = grid.to(device=weight.device, dtype=torch.float32)
     if rank:
-        return LowRankFakeQuantParametrization(spec, getattr(module, param_name), rank)
-    return FakeQuantParametrization(spec)
+        return LowRankFakeQuantParametrization(spec, weight, rank, grid)
+    return FakeQuantParametrization(spec, grid)
 
 
 @dataclass(frozen=True)
@@ -91,23 +110,49 @@ def apply_fake_quant(model: torch.nn.Module, mode: str, rank: int = 0) -> list[s
     return matched
 
 
-def apply_precision_map(model: torch.nn.Module, precision: dict, rank: int = 0) -> list[str]:
+def apply_precision_map(
+    model: torch.nn.Module,
+    precision: dict,
+    rank: int = 0,
+    grids: dict[str, torch.Tensor] | None = None,
+) -> list[str]:
+    """Register fake quantization for every precision-map tensor.
+
+    `grids` maps tensor names to the per-group scales a reconstruction packed; those
+    tensors train on exactly that grid, so the starting point is the reconstruction.
+    """
     parameters = dict(model.named_parameters())
     modules = dict(model.named_modules())
     targets = precision["tensors"]
     missing = set(targets) - set(parameters)
     if missing or not targets:
         raise ValueError(f"Empty or stale precision map: {sorted(missing)[:8]}")
+    grids = grids or {}
     for name, item in targets.items():
         parent, parameter = name.rsplit(".", 1)
         spec = FakeQuantSpec(item["bits"], item["group_size"], item["bits"] == 1.58)
         parametrize.register_parametrization(
             modules[parent],
             parameter,
-            _parametrization(spec, modules[parent], parameter, rank),
+            _parametrization(spec, modules[parent], parameter, rank, grids.get(name)),
             unsafe=True,
         )
     return list(targets)
+
+
+def load_reconstruction_grids(bundle) -> dict[str, torch.Tensor]:
+    """Per-group scales of each packed tensor in a reconstruction bundle, by name."""
+    import json
+    from pathlib import Path
+
+    from safetensors.torch import load_file
+
+    bundle = Path(bundle)
+    manifest = bundle / "mixed-manifest.json"
+    if not manifest.is_file():
+        return {}
+    tensors = json.loads(manifest.read_text()).get("tensors", {})
+    return {name: load_file(str(bundle / item["file"]))["scales"] for name, item in tensors.items()}
 
 
 def remove_fake_quant(model: torch.nn.Module) -> None:

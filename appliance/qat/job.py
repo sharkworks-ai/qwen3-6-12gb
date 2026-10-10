@@ -9,7 +9,12 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling,
 )
-from appliance.qat.parametrize import apply_fake_quant, apply_precision_map, remove_fake_quant
+from appliance.qat.parametrize import (
+    apply_fake_quant,
+    apply_precision_map,
+    load_reconstruction_grids,
+    remove_fake_quant,
+)
 from appliance.stages.common import device_memory, keep_head_with_embeddings, save_json
 from appliance.quant.precision import digest
 from transformers.trainer_utils import get_last_checkpoint
@@ -63,8 +68,15 @@ def main():
     precision = (
         json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
     )
+    # Train on the reconstruction's own grid (scales packed next to the precision map),
+    # so QAT starts from the reconstructed model instead of re-rounding it.
+    grids = (
+        load_reconstruction_grids(Path(cfg["precision_map"]).parent)
+        if precision and cfg.get("use_reconstruction_grid", True)
+        else {}
+    )
     matched = (
-        apply_precision_map(model, precision, rank)
+        apply_precision_map(model, precision, rank, grids)
         if precision
         else apply_fake_quant(model, cfg.get("mode", "q3_moe"), rank)
     )
@@ -155,16 +167,18 @@ def main():
     if int(os.environ.get("WORLD_SIZE", 1)) > 1:
         state = tr.accelerator.get_state_dict(tr.model_wrapped)
         if rank == 0:
-            from appliance.qat.fake_quant import fake_quant_weight
-
             clean = {}
             modules = dict(model.named_modules())
             for name, value in state.items():
                 if ".parametrizations." in name:
+                    if not name.endswith(".original"):
+                        continue
                     parent, tail = name.split(".parametrizations.", 1)
                     parameter = tail.removesuffix(".original")
-                    spec = getattr(modules[parent].parametrizations, parameter)[0].spec
-                    clean[parent + "." + parameter] = fake_quant_weight(value, spec)
+                    quantizer = getattr(modules[parent].parametrizations, parameter)[0]
+                    clean[parent + "." + parameter] = quantizer.quantize(
+                        value.to(quantizer.grid.device) if quantizer.grid is not None else value
+                    )
                 else:
                     clean[name] = value
             model.save_pretrained(out / "recovered", state_dict=clean, safe_serialization=True)
@@ -179,6 +193,7 @@ def main():
                 "identity": identity,
                 "status": "succeeded",
                 "matched_parameters": matched,
+                "reconstruction_grid_parameters": sorted(set(matched) & set(grids)),
                 "trainable": "lora" if lora else "full",
                 "lora_rank": rank,
                 "note": "Re-run target quant backend after QAT; this checkpoint is not the deployment artifact.",
