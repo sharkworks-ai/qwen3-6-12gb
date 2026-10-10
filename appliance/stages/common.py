@@ -29,6 +29,17 @@ def data_path(value: str, data_root: str = "/data") -> Path:
     return path
 
 
+def device_memory(max_memory: dict | None, *, gpu_only: bool = False) -> dict | None:
+    """Accelerate max_memory from JSON, where GPU indices arrive as string keys."""
+    if not max_memory:
+        return None
+    return {
+        int(k) if str(k).isdigit() else k: v
+        for k, v in max_memory.items()
+        if not (gpu_only and not str(k).isdigit())
+    }
+
+
 def resolve_model_source(model: str, data_root: str = "/data") -> str:
     if model.startswith("/") or model.startswith("."):
         return str(data_path(model, data_root))

@@ -43,7 +43,8 @@ Run `python -m appliance.wizard.job --config /data/wizard-config.json`. The web 
 A full-model run writes several BF16 copies of the model, so by default the wizard
 deletes outputs that later stages no longer read, once those stages have succeeded:
 
-- the merged SFT model, after pruning succeeds (training runs with pruning only);
+- the pruned model, after SFT merge succeeds (training runs with pruning only;
+  pruning runs before SFT so the trained model fits 2x32 GB GPUs);
 - each variant's first-pass research export, first-pass packed bundle, window
   checkpoints and QAT directory, after that variant's re-quantization succeeds and
   before the next variant starts. The `requantized/` bundle is kept.

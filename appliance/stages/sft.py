@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from appliance.gpu import compute_dtype, require_kbit_support
-from appliance.stages.common import load_config, resolve_model_source, save_json
+from appliance.stages.common import device_memory, load_config, resolve_model_source, save_json
 from appliance.stages.dataset_io import load_training_dataset, maybe_limit
 
 
@@ -75,11 +75,21 @@ def main() -> None:
             bnb_4bit_compute_dtype=compute_dtype(),
         )
 
+    if config.get("model_parallel"):
+        # One process sharded across GPUs: fused MoE experts stay BF16 under bitsandbytes,
+        # so a per-GPU replica of a large MoE does not fit. GPU-only, so a misfit fails
+        # at load instead of training with offloaded weights.
+        device_map = "auto"
+        max_memory = device_memory(config.get("max_memory"), gpu_only=True)
+    else:
+        device_map = {"": local_rank} if torch.cuda.is_available() else None
+        max_memory = None
     model = AutoModelForImageTextToText.from_pretrained(
         model_source,
         torch_dtype=compute_dtype(),
         quantization_config=quantization_config,
-        device_map={"": local_rank} if torch.cuda.is_available() else None,
+        device_map=device_map,
+        max_memory=max_memory,
         trust_remote_code=bool(config.get("trust_remote_code", False)),
         token=os.environ.get("HF_TOKEN") or None,
     )

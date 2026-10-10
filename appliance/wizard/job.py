@@ -133,31 +133,11 @@ def run(cfg):
             )
             report = {**validation, "wizard_plan": plan, "pipeline_stages": stages.state["stages"]}
         else:
-            source = config["source_model"]
-            if plan["goal"] == "train":
-                adapter = output / "sft" / "adapter"
-                training = {
-                    "model": source,
-                    "dataset_path": config["training_file"],
-                    "output_dir": str(adapter),
-                    "max_steps": config["train_steps"],
-                    "max_length": config["train_length"],
-                    "num_processes": len(config["window_devices"]),
-                    "resume": config["resume"],
-                    "save_steps": 50,
-                    "load_in_4bit": config.get("load_in_4bit", True),
-                    "trust_remote_code": False,
-                }
-                stage("sft", "sft", training)
-                merged = output / "merge" / "model"
-                stage(
-                    "merge",
-                    "merge",
-                    {"model": source, "adapter": str(adapter), "output_dir": str(merged)},
-                )
-                if config["release_source_after_merge"]:
-                    release_source(stages, Path(source))
-                source = str(merged)
+            base = config["source_model"]
+            source = base
+            # Prune before SFT: fused MoE experts stay BF16 under 4-bit loading, so the
+            # full expert set does not fit 2x32 GB for training, while the pruned model
+            # does. SFT then also recovers quality lost to pruning.
             if config["keep_experts"]:
                 profile_path = output / "profile" / "expert-profile.json"
                 stage(
@@ -165,7 +145,10 @@ def run(cfg):
                     "profile",
                     {
                         "model": source,
-                        "load_in_4bit": config.get("load_in_4bit", True),
+                        # Inference only: BF16 may offload to CPU, which 4-bit forbids,
+                        # and 4-bit would quantize only the small non-expert layers.
+                        "load_in_4bit": False,
+                        "max_memory": config["max_memory"],
                         "dataset_path": config["calibration_file"],
                         "output": str(profile_path),
                         "max_samples": config["max_samples"],
@@ -183,10 +166,37 @@ def run(cfg):
                         "keep_experts": config["keep_experts"],
                     },
                 )
-                if plan["goal"] == "train" and not config["keep_intermediates"]:
-                    # Only profile and prune read the merged model.
-                    stages.release("merge", "model")
                 source = str(pruned)
+            if plan["goal"] == "train":
+                adapter = output / "sft" / "adapter"
+                training = {
+                    "model": source,
+                    "dataset_path": config["training_file"],
+                    "output_dir": str(adapter),
+                    "max_steps": config["train_steps"],
+                    "max_length": config["train_length"],
+                    # One process sharded across the selected GPUs.
+                    "num_processes": 1,
+                    "model_parallel": True,
+                    "max_memory": config["max_memory"],
+                    "resume": config["resume"],
+                    "save_steps": 50,
+                    "load_in_4bit": config.get("load_in_4bit", True),
+                    "trust_remote_code": False,
+                }
+                stage("sft", "sft", training)
+                merged = output / "merge" / "model"
+                stage(
+                    "merge",
+                    "merge",
+                    {"model": source, "adapter": str(adapter), "output_dir": str(merged)},
+                )
+                if config["keep_experts"] and not config["keep_intermediates"]:
+                    # Only SFT and merge read the pruned model.
+                    stages.release("prune", "model")
+                if config["release_source_after_merge"]:
+                    release_source(stages, Path(base))
+                source = str(merged)
             if "extreme" in config["variants"]:
                 ayot = output / "ayot" / "traces.jsonl"
                 stage(

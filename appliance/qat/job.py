@@ -10,7 +10,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
 )
 from appliance.qat.parametrize import apply_fake_quant, apply_precision_map, remove_fake_quant
-from appliance.stages.common import save_json
+from appliance.stages.common import device_memory, save_json
 from appliance.quant.precision import digest
 from transformers.trainer_utils import get_last_checkpoint
 import os
@@ -23,16 +23,34 @@ def main():
     p.add_argument("--config", required=True)
     a = p.parse_args()
     cfg = json.loads(Path(a.config).read_text())
+    # "lora" trains low-rank corrections through the quantizer on a frozen model, one
+    # process sharded across GPUs. "full" fine-tunes every weight with FSDP, which needs
+    # optimizer state for the whole model and does not fit 2x32 GB for a 35B MoE.
+    lora = cfg.get("trainable", "lora") == "lora"
+    rank = int(cfg.get("lora_rank", 16)) if lora else 0
+    if lora and int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        raise ValueError("LoRA QAT shards one process across GPUs; set num_processes to 1")
+    loading = {
+        "device_map": "auto",
+        "max_memory": device_memory(cfg.get("max_memory"), gpu_only=True),
+    }
     model = AutoModelForCausalLM.from_pretrained(
-        cfg["student_model"], torch_dtype=compute_dtype(), trust_remote_code=True, low_cpu_mem_usage=True
+        cfg["student_model"],
+        torch_dtype=compute_dtype(),
+        trust_remote_code=True,
+        low_cpu_mem_usage=True,
+        **(loading if lora else {}),
     )
+    if lora:
+        # Freeze before registering, so only the new adapter parameters train.
+        model.requires_grad_(False)
     precision = (
         json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
     )
     matched = (
-        apply_precision_map(model, precision)
+        apply_precision_map(model, precision, rank)
         if precision
-        else apply_fake_quant(model, cfg.get("mode", "q3_moe"))
+        else apply_fake_quant(model, cfg.get("mode", "q3_moe"), rank)
     )
     if not matched:
         raise ValueError("No QAT tensors matched")
@@ -57,22 +75,28 @@ def main():
         output_dir=str(out / "trainer"),
         per_device_train_batch_size=int(cfg.get("batch_size", 1)),
         gradient_accumulation_steps=int(cfg.get("gradient_accumulation_steps", 8)),
-        learning_rate=float(cfg.get("learning_rate", 5e-6)),
+        learning_rate=float(
+            cfg.get("lora_learning_rate", 1e-4) if lora else cfg.get("learning_rate", 5e-6)
+        ),
         max_steps=int(cfg.get("max_steps", 200)),
         bf16=compute_dtype() == torch.bfloat16,
+        # Recompute each layer's fake-quantized weights in backward instead of keeping
+        # a full-model copy of them alive.
+        gradient_checkpointing=lora,
+        gradient_checkpointing_kwargs={"use_reentrant": False} if lora else None,
         logging_steps=1,
         save_steps=int(cfg.get("save_steps", 100)),
         # Each full-model checkpoint carries optimizer state; resume needs only the latest.
         save_total_limit=1,
         report_to=[],
         remove_unused_columns=False,
-        fsdp="full_shard auto_wrap" if int(cfg.get("num_processes", 2)) > 1 else "",
+        fsdp="full_shard auto_wrap" if not lora and int(cfg.get("num_processes", 2)) > 1 else "",
         fsdp_config={
             "use_orig_params": True,
             "cpu_ram_efficient_loading": True,
             "sync_module_states": True,
         }
-        if int(cfg.get("num_processes", 2)) > 1
+        if not lora and int(cfg.get("num_processes", 2)) > 1
         else None,
     )
     identity = digest(
@@ -127,6 +151,8 @@ def main():
                 "identity": identity,
                 "status": "succeeded",
                 "matched_parameters": matched,
+                "trainable": "lora" if lora else "full",
+                "lora_rank": rank,
                 "note": "Re-run target quant backend after QAT; this checkpoint is not the deployment artifact.",
             },
         )

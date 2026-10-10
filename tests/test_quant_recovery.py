@@ -22,3 +22,34 @@ def test_escalation():
 def test_failure_buffer(tmp_path:Path):
     b=FailureBuffer(tmp_path/'f.jsonl'); rows=[{'prompt':'x','teacher_success':True,'student_success':False,'teacher_output':'good','student_output':'bad'}]
     assert b.extend_from_comparison(rows)==1; assert b.extend_from_comparison(rows)==0; assert len(b.read())==1
+
+def test_low_rank_qat_trains_adapter_through_quantizer():
+    from torch.nn.utils import parametrize
+
+    from appliance.qat.parametrize import apply_fake_quant, remove_fake_quant
+
+    experts = torch.nn.Module()
+    experts.gate_up_proj = torch.nn.Parameter(torch.randn(4, 8, 64))
+    model = torch.nn.Module()
+    model.mlp = torch.nn.Module()
+    model.mlp.experts = experts
+    model.requires_grad_(False)
+    base = experts.gate_up_proj.detach().clone()
+    spec = FakeQuantSpec(3, 64)
+    assert apply_fake_quant(model, "q3_moe", rank=2) == ["mlp.experts.gate_up_proj"]
+    # Only the per-expert adapters train; B starts at zero, so training starts at fq(W).
+    prefix = "mlp.experts.parametrizations.gate_up_proj.0."
+    assert sorted(n for n, p in model.named_parameters() if p.requires_grad) == [
+        prefix + "lora_a",
+        prefix + "lora_b",
+    ]
+    assert torch.equal(experts.gate_up_proj, fake_quant_weight(base, spec))
+    adapter = experts.parametrizations.gate_up_proj[0]
+    (experts.gate_up_proj * torch.randn_like(base)).sum().backward()
+    assert adapter.lora_b.grad.abs().sum() > 0
+    with torch.no_grad():
+        adapter.lora_b.add_(0.1)
+    expected = fake_quant_weight(base + adapter.lora_b @ adapter.lora_a, spec)
+    remove_fake_quant(model)
+    assert not parametrize.is_parametrized(experts)
+    assert torch.allclose(experts.gate_up_proj, expected)

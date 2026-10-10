@@ -37,7 +37,7 @@ def run(cfg: dict):
         "student_model": first["research_model"],
         "precision_map": first["precision_map"],
         "output_dir": str(out / "qat"),
-        "num_processes": int(recovery.get("num_processes", 2)),
+        "num_processes": int(recovery.get("num_processes", 1)),
         "resume": bool(cfg.get("resume")),
     }
     qat_path = out / "qat-config.json"

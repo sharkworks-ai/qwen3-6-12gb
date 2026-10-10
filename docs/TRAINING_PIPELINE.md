@@ -4,7 +4,9 @@
 
 `appliance.stages.sft` uses Transformers + TRL + PEFT. The base checkpoint is loaded in NF4 by default, and LoRA targets both ordinary linear modules and the Qwen3.6 routed expert parameters (`mlp.experts.gate_up_proj` and `mlp.experts.down_proj`). The router itself is not targeted, so it remains frozen in the first SFT stage.
 
-Two-GPU runs launch with `torchrun --nproc-per-node=2`. Each process loads a 4-bit copy on its local 5090 and DDP synchronizes adapter gradients. This is deliberately simple and robust for 2x32 GB. If adapter memory proves too high, lower `lora_rank`, `expert_rank`, or context length before moving to FSDP.
+bitsandbytes 4-bit quantizes only `nn.Linear` layers. Qwen3.6's routed experts are fused 3-D parameters, so they stay BF16: of 35.1B parameters, 32.2B are experts (about 60 GiB), and a "4-bit" load is still about 62 GiB. A per-GPU replica therefore cannot fit a 32 GB card.
+
+The wizard consequently profiles and prunes **before** SFT, then trains the pruned model as one process sharded across the selected GPUs (`model_parallel: true`, GPU-only `max_memory`). At 128 of 256 experts the BF16 model is about 33 GB, which fits 2x32 GB with room for adapters and activations. Training the pruned model also recovers quality lost to pruning. The DDP path (`torchrun`, one 4-bit replica per GPU) remains for models whose quantized replica fits a single card. If memory is tight, lower `lora_rank`, `expert_rank`, context length or `keep_experts`.
 
 TRL consumes conversational and tool-calling datasets directly. `assistant_only_loss=true` is the default project policy.
 

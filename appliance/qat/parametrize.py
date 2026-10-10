@@ -15,6 +15,37 @@ class FakeQuantParametrization(torch.nn.Module):
         return fake_quant_weight(x, self.spec)
 
 
+class LowRankFakeQuantParametrization(torch.nn.Module):
+    """fake_quant(W + B @ A): a trainable low-rank correction seen through the quantizer.
+
+    W stays frozen, so recovery needs memory for the model plus small adapters rather
+    than full-parameter optimizer state. Removing the parametrization leaves the merged,
+    fake-quantized weight that re-quantization starts from. Batched (expert) weights get
+    one adapter per leading index.
+    """
+
+    def __init__(self, spec: FakeQuantSpec, weight: torch.Tensor, rank: int):
+        super().__init__()
+        self.spec = spec
+        *batch, rows, columns = weight.shape
+        options = {"device": weight.device, "dtype": torch.float32}
+        # B starts at zero, so training begins from the plain fake-quantized weight.
+        self.lora_b = torch.nn.Parameter(torch.zeros(*batch, rows, rank, **options))
+        self.lora_a = torch.nn.Parameter(
+            torch.randn(*batch, rank, columns, **options) / columns**0.5
+        )
+
+    def forward(self, x):
+        delta = torch.matmul(self.lora_b, self.lora_a).to(x.dtype)
+        return fake_quant_weight(x + delta, self.spec)
+
+
+def _parametrization(spec, module, param_name, rank):
+    if rank:
+        return LowRankFakeQuantParametrization(spec, getattr(module, param_name), rank)
+    return FakeQuantParametrization(spec)
+
+
 @dataclass(frozen=True)
 class Rule:
     pattern: str
@@ -38,7 +69,7 @@ def rules_for(mode: str):
     raise ValueError(mode)
 
 
-def apply_fake_quant(model: torch.nn.Module, mode: str) -> list[str]:
+def apply_fake_quant(model: torch.nn.Module, mode: str, rank: int = 0) -> list[str]:
     matched = []
     module_map = dict(model.named_modules())
     for full_name, _ in list(model.named_parameters()):
@@ -50,14 +81,17 @@ def apply_fake_quant(model: torch.nn.Module, mode: str) -> list[str]:
             if parametrize.is_parametrized(module, param_name):
                 break
             parametrize.register_parametrization(
-                module, param_name, FakeQuantParametrization(rule.spec), unsafe=True
+                module,
+                param_name,
+                _parametrization(rule.spec, module, param_name, rank),
+                unsafe=True,
             )
             matched.append(full_name)
             break
     return matched
 
 
-def apply_precision_map(model: torch.nn.Module, precision: dict) -> list[str]:
+def apply_precision_map(model: torch.nn.Module, precision: dict, rank: int = 0) -> list[str]:
     parameters = dict(model.named_parameters())
     modules = dict(model.named_modules())
     targets = precision["tensors"]
@@ -70,7 +104,7 @@ def apply_precision_map(model: torch.nn.Module, precision: dict) -> list[str]:
         parametrize.register_parametrization(
             modules[parent],
             parameter,
-            FakeQuantParametrization(spec),
+            _parametrization(spec, modules[parent], parameter, rank),
             unsafe=True,
         )
     return list(targets)

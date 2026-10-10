@@ -140,6 +140,10 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
     profile = str(answers.get("benchmark_profile", "diagnostics"))
     if profile != "diagnostics" and profile not in harness_profiles():
         raise ValueError("Selected isolated benchmark harness is not configured")
+    max_memory = {
+        **{str(i): f"{integer(answers, 'gpu_memory_gib', 28, 4, 192)}GiB" for i in range(count)},
+        "cpu": f"{integer(answers, 'cpu_memory_gib', 80, 4, 1024)}GiB",
+    }
     keep = integer(answers, "keep_experts", 128, 1, 4096) if answers.get("prune") is True else None
     if (
         keep is not None
@@ -173,20 +177,20 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "runtime_device": "cuda:0",
         "chunk_rows": 128,
         "window_devices": [f"cuda:{i}" for i in range(count)],
-        "max_memory": {
-            **{
-                str(i): f"{integer(answers, 'gpu_memory_gib', 28, 4, 192)}GiB" for i in range(count)
-            },
-            "cpu": f"{integer(answers, 'cpu_memory_gib', 80, 4, 1024)}GiB",
-        },
+        "max_memory": max_memory,
         "recovery": {
-            "num_processes": count,
+            # LoRA QAT: one process sharded across the selected GPUs.
+            "num_processes": 1,
+            "trainable": "lora",
+            "max_memory": max_memory,
             "max_steps": integer(answers, "qat_steps", 200, 1, 100000),
             "save_steps": 50,
         },
     }
-    steps = ["SFT / QLoRA", "Merge adapter"] if goal == "train" else []
-    steps += ["Profile expert use", "Prune experts"] if keep is not None else []
+    # Prune first: fused MoE experts stay BF16 under 4-bit loading, so SFT of the full
+    # expert set does not fit 2x32 GB, while the pruned model does.
+    steps = ["Profile expert use", "Prune experts"] if keep is not None else []
+    steps += ["SFT / QLoRA", "Merge adapter"] if goal == "train" else []
     steps += ["Generate teacher reasoning calibration"] if "extreme" in variants else []
     steps += [
         "Baseline diagnostics",

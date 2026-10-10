@@ -64,8 +64,9 @@ The teacher checkpoint is loaded in CPU memory. Calibration moves one block
 at a time to `device`; reconstruction holds only the active window on GPUs.
 Provision CPU RAM for the complete BF16 source and disk for cached block inputs,
 teacher outputs, full Hessians, packed weights and BF16 exports. These caches
-can be large. QAT uses the existing distributed FSDP Trainer path and has a
-different memory footprint. Full-model fit on two 5090s is unvalidated.
+can be large. QAT trains low-rank corrections through the quantizer on a frozen,
+GPU-sharded student by default (see `docs/QUANT_RECOVERY.md`) and has a different
+memory footprint. Full-model fit on two 5090s is unvalidated.
 
 ## Calibration, recovery and resume
 

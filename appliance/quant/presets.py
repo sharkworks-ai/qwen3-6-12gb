@@ -41,7 +41,9 @@ def preset(name: str) -> dict:
         "recovery": {
             "enabled": name == "extreme",
             "dataset": "/data/datasets/recovery.jsonl",
-            "num_processes": 2,
+            # LoRA QAT shards one process across the GPUs.
+            "num_processes": 1,
+            "trainable": "lora",
             "max_steps": 200,
             "save_steps": 50,
             "max_length": 8192,

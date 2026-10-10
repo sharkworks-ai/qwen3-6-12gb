@@ -15,9 +15,13 @@ This reuses the project's SFT/QLoRA stage against a recovery mixture. The key ex
 
 ## Selective QAT
 
-QAT is performed after expert pruning, not on the original 35B BF16 model. The pruned BF16 student is sharded across the two RTX 5090s with FSDP.
+QAT is performed after expert pruning, not on the original 35B BF16 model.
 
-Fake quantization is registered as a PyTorch parametrization on selected parameters, so the forward pass sees quantization noise while the underlying master parameter remains trainable. This works with Qwen MoE 3-D expert parameters as well as ordinary 2-D weights.
+Fake quantization is registered as a PyTorch parametrization on selected parameters, so the forward pass sees quantization noise. This works with Qwen MoE 3-D expert parameters as well as ordinary 2-D weights.
+
+By default (`trainable: "lora"`) the model is frozen and each quantized tensor trains a low-rank correction through the quantizer: the forward weight is `fake_quant(W + B @ A)`, with one adapter per expert for 3-D tensors (`lora_rank`, default 16; `lora_learning_rate`, default 1e-4). One process holds the pruned BF16 student sharded across the GPUs (`device_map="auto"`, GPU-only `max_memory`), with gradient checkpointing so each layer's fake-quantized weights are recomputed in backward. Removing the parametrization leaves the merged, fake-quantized weight that re-quantization starts from.
+
+`trainable: "full"` keeps the previous FSDP full-parameter path. It needs weights, gradients and optimizer state for every parameter (roughly 8 bytes per parameter, about 140 GB for a 128-expert student), which does not fit 2x32 GB GPUs.
 
 Modes:
 

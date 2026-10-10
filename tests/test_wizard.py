@@ -46,7 +46,14 @@ def test_plan_compiles_only_supported_operations(tmp_path):
     assert proof["config"]["device"] == "cuda:0" and "cpu_test" not in proof["config"]
     answers = real_answers(tmp_path)
     plan = compile_plan(answers, str(tmp_path))
-    assert plan["stages"][:2] == ["SFT / QLoRA", "Merge adapter"]
+    assert plan["stages"][:4] == [
+        "Profile expert use",
+        "Prune experts",
+        "SFT / QLoRA",
+        "Merge adapter",
+    ]
+    assert plan["config"]["recovery"]["num_processes"] == 1
+    assert plan["config"]["recovery"]["trainable"] == "lora"
     assert plan["config"]["variants"] == ["aggressive", "extreme"]
     assert plan["config"]["max_new_tokens"] + plan["config"]["context_lengths"][0] <= 262144
     assert plan["config"]["keep_experts"] == 8
@@ -201,27 +208,32 @@ def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
     fail["value"] = False
     report = job.run({"answers": {**answers, "resume": True}})
     assert [kind for kind, cfg in calls] == [
+        "profile",
+        "prune",
         "sft",
         "merge",
         "merge",
-        "profile",
-        "prune",
         "ayot",
         "full_validation",
     ]
+    kinds = dict(calls)
+    # Pruned model trains as one model-parallel process; profiling may offload BF16.
+    assert kinds["sft"]["model"] == str(output / "prune/model")
+    assert kinds["sft"]["num_processes"] == 1 and kinds["sft"]["model_parallel"] is True
+    assert kinds["profile"]["load_in_4bit"] is False and kinds["profile"]["max_memory"]
     validation_cfg = calls[-1][1]
-    assert validation_cfg["source_model"] == str(output / "prune/model")
+    assert validation_cfg["source_model"] == str(output / "merge/model")
     assert validation_cfg["ayot_file"] == str(output / "ayot/traces.jsonl")
     assert report["selection"]["recommended"] is None
-    # The merged model is released once pruning succeeds; resume still skips merge.
-    assert not (output / "merge/model").exists()
+    # The pruned model is released once merge succeeds; resume still skips prune.
+    assert not (output / "prune/model").exists()
     progress = json.loads((output / "proof-progress.json").read_text())
-    assert progress["stages"]["merge"]["released"] == ["model"]
+    assert progress["stages"]["prune"]["released"] == ["model"]
     assert Path(answers["source_model"]).is_dir()
     count = len(calls)
     job.run({"answers": {**answers, "resume": True}})
     assert len(calls) == count
-    (output / "prune/model/stage-manifest.json").write_text("tampered")
+    (output / "merge/model/stage-manifest.json").write_text("tampered")
     with pytest.raises(ValueError, match="integrity"):
         job.run({"answers": {**answers, "resume": True}})
 

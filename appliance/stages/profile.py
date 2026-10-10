@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from appliance.gpu import compute_dtype, require_kbit_support
-from appliance.stages.common import load_config, resolve_model_source, save_json
+from appliance.stages.common import device_memory, load_config, resolve_model_source, save_json
 from appliance.stages.dataset_io import load_training_dataset, maybe_limit
 
 
@@ -57,6 +57,7 @@ def main() -> None:
         torch_dtype=compute_dtype(),
         quantization_config=quant,
         device_map="auto",
+        max_memory=device_memory(config.get("max_memory")),
         token=os.environ.get("HF_TOKEN") or None,
     )
     if config.get("adapter"):
