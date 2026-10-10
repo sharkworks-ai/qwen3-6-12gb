@@ -81,9 +81,14 @@ def main() -> None:
         quantization_config=quantization_config,
         device_map={"": local_rank} if torch.cuda.is_available() else None,
         trust_remote_code=bool(config.get("trust_remote_code", False)),
-        use_cache=False,
         token=os.environ.get("HF_TOKEN") or None,
     )
+    # Transformers 5 passes unknown loading kwargs to the model class, which rejects
+    # use_cache, so disable the KV cache on the loaded configs instead.
+    model.config.use_cache = False
+    text_config = getattr(model.config, "text_config", None)
+    if text_config is not None:
+        text_config.use_cache = False
     processor = AutoProcessor.from_pretrained(model_source, token=os.environ.get("HF_TOKEN") or None)
 
     if quantization_config is not None:
