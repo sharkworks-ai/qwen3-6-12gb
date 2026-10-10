@@ -39,9 +39,13 @@ def fake_quant_on_grid(w: torch.Tensor, s: FakeQuantSpec, scales: torch.Tensor) 
     if scales.numel() != x.shape[0]:
         raise ValueError(f"Grid has {scales.numel()} scales for {x.shape[0]} groups")
     # FP32 division, so BF16 weights already on the grid round back to their level.
+    # GSQ scales are signed, and a zero scale decodes its whole group to zero.
     scale = scales.reshape(-1, 1).float()
+    divisor = torch.where(scale == 0, torch.ones_like(scale), scale)
     lo, hi = levels(s)
-    dq = ((x.float() / scale).round().clamp(lo, hi) * scale).to(x.dtype)
+    # In place, so a fused expert tensor needs one FP32 temporary rather than several.
+    dq = x.to(torch.float32, copy=True).div_(divisor).round_().clamp_(lo, hi).mul_(scale)
+    dq = dq.to(x.dtype)
     return _restore(x + (dq - x).detach(), shape)
 
 

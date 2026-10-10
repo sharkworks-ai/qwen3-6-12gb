@@ -42,6 +42,15 @@ def run(cfg: dict):
     }
     qat_path = out / "qat-config.json"
     save_json(qat_path, qat_config)
+    # Reconstruction ran in this process; release its cached GPU memory (about 9 GB on
+    # cuda:0) so the QAT subprocess can use the whole device.
+    import gc
+
+    import torch
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     # QAT creates its own config identity + resumable Trainer checkpoints.
     subprocess.run(command_for("qat_recovery", qat_path, qat_config), check=True)
     final_cfg = {**cfg, "source_model": str(recovered), "output_dir": str(out / "requantized")}

@@ -76,6 +76,13 @@ def test_qat_trains_on_the_reconstruction_grid(tmp_path: Path):
     assert torch.equal(fake_quant_on_grid(on_grid, spec, scales), on_grid)
     # Min/max then picks a smaller step and re-rounds every weight off that grid.
     assert not torch.allclose(fake_quant_weight(on_grid, spec), on_grid)
+    # GSQ scales are signed, and a zero scale decodes its group to zero, as at runtime.
+    signed = scales.clone()
+    signed[::2] *= -1
+    signed[1] = 0
+    flat = (codes * signed[:, None]).reshape(4, 8, 128)
+    result = fake_quant_on_grid(flat, spec, signed)
+    assert torch.isfinite(result).all() and torch.equal(result, flat)
 
     name = "mlp.experts.gate_up_proj"
     (tmp_path / "packed").mkdir()
