@@ -28,7 +28,9 @@ def run(cfg: dict):
         }
     )
     state_path = output.with_suffix(".progress.json")
-    state = {"identity": identity, "rows": 0}
+    # "rows" counts prompts processed and "written" traces kept; they differ once an
+    # incomplete trace is skipped.
+    state = {"identity": identity, "rows": 0, "written": 0, "skipped": []}
     if state_path.exists():
         if not cfg.get("resume"):
             raise ValueError("Trace output exists. Enable Resume.")
@@ -38,7 +40,8 @@ def run(cfg: dict):
     output.parent.mkdir(parents=True, exist_ok=True)
     existing = output.read_text().splitlines() if output.exists() else []
     # Drop a row written after the last atomic progress checkpoint.
-    output.write_text("".join(line + "\n" for line in existing[: state["rows"]]))
+    written = state.get("written", state["rows"])
+    output.write_text("".join(line + "\n" for line in existing[:written]))
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -73,26 +76,40 @@ def run(cfg: dict):
                 raise ValueError("AYOT prompt exceeds max_prompt_tokens")
             result = model.generate(
                 **tokens,
-                max_new_tokens=int(cfg.get("max_new_tokens", 2048)),
+                # Coding prompts with several requirements often reason past 2048 tokens.
+                max_new_tokens=int(cfg.get("max_new_tokens", 4096)),
                 do_sample=False,
                 pad_token_id=tokenizer.eos_token_id,
             )
             answer = tokenizer.decode(
                 result[0, tokens.input_ids.shape[-1] :], skip_special_tokens=False
             )
-            if "</think>" not in text + answer:
-                raise ValueError(
-                    "Teacher did not complete a reasoning trace. Increase generation budget."
+            if "</think>" in text + answer:
+                stream.write(
+                    json.dumps({"text": text + answer, "teacher_model": str(source)}) + "\n"
                 )
-            stream.write(json.dumps({"text": text + answer, "teacher_model": str(source)}) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+                stream.flush()
+                os.fsync(stream.fileno())
+                written += 1
+            else:
+                # One long-winded prompt should not fail the stage; unfinished reasoning is
+                # not a usable trace, so leave it out and record it.
+                state.setdefault("skipped", []).append(index)
             state["rows"] = index + 1
+            state["written"] = written
             save_json(state_path, state)
+    complete = float(cfg.get("min_complete_fraction", 0.75))
+    if written < max(1, complete * len(rows)):
+        raise ValueError(
+            f"Only {written} of {len(rows)} teacher traces completed reasoning within "
+            f"{int(cfg.get('max_new_tokens', 4096))} tokens. Increase max_new_tokens."
+        )
     manifest = {
         "kind": "ayot",
         "teacher_model": str(source),
-        "rows": state["rows"],
+        "rows": written,
+        "prompts": state["rows"],
+        "skipped_incomplete": state.get("skipped", []),
         "identity": identity,
         "sha256": file_hash(output),
     }

@@ -157,3 +157,60 @@ def test_pipeline_releases_first_pass_after_qat_and_resumes_past_it(tmp_path: Pa
     assert calls == ["first", "requantized", "requantized"]
     pipeline.run({**cfg, "keep_intermediates": True, "output_dir": str(tmp_path / "keep")})
     assert (tmp_path / "keep" / "research-hf").exists()
+
+def test_ayot_skips_unfinished_traces_but_requires_most_to_complete(tmp_path: Path, monkeypatch):
+    import json
+
+    import pytest
+    from transformers import BatchEncoding
+
+    from appliance.quant import ayot
+
+    monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
+    source = tmp_path / "model"
+    source.mkdir()
+    (source / "config.json").write_text("{}")
+    (source / "model.safetensors").write_text("weights")
+    prompts = tmp_path / "prompts.jsonl"
+    prompts.write_text("".join(
+        json.dumps({"messages": [{"role": "user", "content": f"task {i}"}]}) + "\n"
+        for i in range(4)
+    ))
+
+    class Tokenizer:
+        eos_token_id = 0
+
+        def apply_chat_template(self, messages, **kwargs):
+            return "<think>" + messages[-1]["content"]
+
+        def __call__(self, text, return_tensors=None):
+            self.current = text
+            return BatchEncoding({"input_ids": torch.tensor([[1, 2]])})
+
+        def decode(self, ids, skip_special_tokens=False):
+            # Prompt "task 1" reasons past the budget; the others finish.
+            return "still reasoning" if self.current.endswith("task 1") else "plan</think>answer"
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embed = torch.nn.Embedding(4, 2)
+
+        def get_input_embeddings(self):
+            return self.embed
+
+        def generate(self, input_ids, **kwargs):
+            return torch.cat([input_ids, torch.tensor([[3]])], dim=-1)
+
+    tokenizer = Tokenizer()
+    monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", lambda *a, **k: tokenizer)
+    monkeypatch.setattr("transformers.AutoModelForCausalLM.from_pretrained", lambda *a, **k: Model())
+    cfg = {"source_model": str(source), "prompts_file": str(prompts),
+           "output_file": str(tmp_path / "traces.jsonl")}
+    manifest = ayot.run(cfg)
+    assert manifest["rows"] == 3 and manifest["prompts"] == 4
+    assert manifest["skipped_incomplete"] == [1]
+    assert len((tmp_path / "traces.jsonl").read_text().splitlines()) == 3
+    strict = {**cfg, "output_file": str(tmp_path / "strict.jsonl"), "min_complete_fraction": 1.0}
+    with pytest.raises(ValueError, match="Only 3 of 4 teacher traces"):
+        ayot.run(strict)
