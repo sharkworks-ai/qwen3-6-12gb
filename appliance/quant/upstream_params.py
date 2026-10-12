@@ -22,6 +22,22 @@ class SoftenedRounding(TorchFunctionMode):
         return func(*args, **(kwargs or {}))
 
 
+def typical_step_for_zero_groups(matrix, scales, group):
+    """Give all-zero groups the tensor's median step instead of GPTQ's fallback.
+
+    GPTQ gives an all-zero group the range [-1, 1], a step far larger than real weights
+    (about 0.67 at 2 bits against weights near 0.01). GSQ's stochastic code search then
+    turns any code that leaves 0 into a huge weight. Re-quantizing an already-quantized
+    model hits this for every group that rounded to zero and destroyed the model.
+    """
+    zero = matrix.reshape(matrix.shape[0], -1, group).abs().sum(-1) == 0
+    if not zero.any():
+        return scales
+    real = scales[~zero].abs()
+    typical = real.median() if real.numel() else scales.new_tensor(1e-3)
+    return torch.where(zero, typical.to(scales.dtype), scales)
+
+
 class ProjectionQuantizer(torch.nn.Module):
     def __init__(self, weight, spec, components, hessian, cfg):
         super().__init__()
@@ -93,6 +109,7 @@ class ProjectionQuantizer(torch.nn.Module):
                 blocksize=int(cfg.get("gptq_block_size", 128)),
                 percdamp=float(cfg.get("gptq_damp", 0.1)),
             )
+            scales = typical_step_for_zero_groups(matrix, scales, group)
             common = (q, scales, group, 0.01, 6, matrix.device, matrix.dtype, matrix.dtype)
             self.quantizer = (
                 quant.GumbelQuantizer2Bit(*common)

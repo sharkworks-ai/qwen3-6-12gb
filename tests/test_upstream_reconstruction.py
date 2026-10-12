@@ -12,7 +12,7 @@ from appliance.quant.lowbit import dequantize
 from appliance.quant.mixed_job import file_hash
 from appliance.quant.presets import preset
 from appliance.quant.upstream import load_components
-from appliance.quant.upstream_params import ProjectionQuantizer
+from appliance.quant.upstream_params import ProjectionQuantizer, typical_step_for_zero_groups
 from appliance.quant.window_job import run, windows
 
 
@@ -203,3 +203,21 @@ def test_actual_moe_window_training_and_resume(upstream, tmp_path, monkeypatch, 
     cfg["window_stride"] = 2
     with pytest.raises(ValueError, match="mismatch|Require"):
         run(cfg)
+
+
+def test_zero_groups_get_the_typical_step_not_gptq_fallback():
+    # Re-quantizing a quantized tensor: many groups rounded to zero. GPTQ gives those
+    # the range [-1, 1] (step about 0.67 at 2 bits), so any GSQ code flip there became
+    # a weight around 50x too large and destroyed the requantized model.
+    matrix = torch.randn(4, 256) * 0.01
+    matrix[0, :64] = 0
+    matrix[2, 128:192] = 0
+    scales = torch.full((4, 4), 0.01)
+    scales[1, 0] = -0.02  # GSQ scales are signed
+    scales[0, 0] = scales[2, 2] = 2 / 3  # GPTQ's zero-range fallback
+    zero = torch.zeros(4, 4, dtype=torch.bool)
+    zero[0, 0] = zero[2, 2] = True
+    fixed = typical_step_for_zero_groups(matrix, scales, 64)
+    assert fixed[0, 0] == fixed[2, 2] == scales[~zero].abs().median()
+    assert torch.equal(fixed[~zero], scales[~zero])
+    assert typical_step_for_zero_groups(torch.randn(4, 256), scales, 64) is scales
