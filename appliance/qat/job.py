@@ -23,8 +23,32 @@ import torch
 from appliance.gpu import compute_dtype
 
 
+ADAPTER_STATE = "qat-adapters.pt"
+
+
 class FusedLossTrainer(Trainer):
-    """Trainer whose loss comes from TRL's fused LM head (see add_fused_lm_head)."""
+    """Trainer whose loss comes from TRL's fused LM head (see add_fused_lm_head).
+
+    Checkpoints hold only the trainable adapters: the frozen base reloads from the
+    student model, and saving it put a full model copy (about 40 GB) in every checkpoint.
+    """
+
+    def _save(self, output_dir=None, state_dict=None):
+        output_dir = Path(output_dir or self.args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        adapters = {
+            n: p.detach().cpu() for n, p in self.model.named_parameters() if p.requires_grad
+        }
+        torch.save(adapters, output_dir / ADAPTER_STATE)
+
+    def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
+        adapters = torch.load(
+            Path(resume_from_checkpoint) / ADAPTER_STATE, map_location="cpu", weights_only=True
+        )
+        parameters = dict((model or self.model).named_parameters())
+        with torch.no_grad():
+            for name, value in adapters.items():
+                parameters[name].copy_(value)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # Trainer sees the patched forward's **kwargs and skips gradient-accumulation
@@ -42,9 +66,24 @@ def main():
     # process sharded across GPUs. "full" fine-tunes every weight with FSDP, which needs
     # optimizer state for the whole model and does not fit 2x32 GB for a 35B MoE.
     lora = cfg.get("trainable", "lora") == "lora"
-    rank = int(cfg.get("lora_rank", 16)) if lora else 0
+    lora_rank = int(cfg.get("lora_rank", 16)) if lora else 0
     if lora and int(os.environ.get("WORLD_SIZE", "1")) > 1:
         raise ValueError("LoRA QAT shards one process across GPUs; set num_processes to 1")
+    precision = (
+        json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
+    )
+    identity = digest(
+        {"config": {k: v for k, v in cfg.items() if k != "resume"}, "precision": precision}
+    )
+    out = Path(cfg["output_dir"])
+    manifest = out / "qat-manifest.json"
+    # Check before loading: once QAT succeeds the pipeline may delete the student model.
+    if manifest.exists():
+        old = json.loads(manifest.read_text())
+        if not cfg.get("resume") or old.get("identity") != identity:
+            raise ValueError("QAT resume config mismatch")
+        if old.get("status") == "succeeded":
+            return
     memory = device_memory(cfg.get("max_memory"), gpu_only=True)
     if memory and len(memory) > 1:
         # cuda:0 also holds the embeddings, LM head and the loss's FP32 logits (about
@@ -65,9 +104,6 @@ def main():
         # Freeze before registering, so only the new adapter parameters train.
         model.requires_grad_(False)
         keep_head_with_embeddings(model)
-    precision = (
-        json.loads(Path(cfg["precision_map"]).read_text()) if cfg.get("precision_map") else None
-    )
     # Train on the reconstruction's own grid (scales packed next to the precision map),
     # so QAT starts from the reconstructed model instead of re-rounding it.
     grids = (
@@ -76,9 +112,9 @@ def main():
         else {}
     )
     matched = (
-        apply_precision_map(model, precision, rank, grids)
+        apply_precision_map(model, precision, lora_rank, grids)
         if precision
-        else apply_fake_quant(model, cfg.get("mode", "q3_moe"), rank)
+        else apply_fake_quant(model, cfg.get("mode", "q3_moe"), lora_rank)
     )
     if not matched:
         raise ValueError("No QAT tensors matched")
@@ -102,7 +138,6 @@ def main():
         return z
 
     ds = ds.map(enc, remove_columns=ds.column_names)
-    out = Path(cfg["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
     args = TrainingArguments(
         output_dir=str(out / "trainer"),
@@ -132,16 +167,6 @@ def main():
         if not lora and int(cfg.get("num_processes", 2)) > 1
         else None,
     )
-    identity = digest(
-        {"config": {k: v for k, v in cfg.items() if k != "resume"}, "precision": precision}
-    )
-    manifest = out / "qat-manifest.json"
-    if manifest.exists():
-        old = json.loads(manifest.read_text())
-        if not cfg.get("resume") or old.get("identity") != identity:
-            raise ValueError("QAT resume config mismatch")
-        if old.get("status") == "succeeded":
-            return
     rank = int(os.environ.get("RANK", 0))
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
@@ -195,7 +220,7 @@ def main():
                 "matched_parameters": matched,
                 "reconstruction_grid_parameters": sorted(set(matched) & set(grids)),
                 "trainable": "lora" if lora else "full",
-                "lora_rank": rank,
+                "lora_rank": lora_rank,
                 "note": "Re-run target quant backend after QAT; this checkpoint is not the deployment artifact.",
             },
         )

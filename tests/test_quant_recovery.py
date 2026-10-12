@@ -110,3 +110,50 @@ def test_qat_trains_on_the_reconstruction_grid(tmp_path: Path):
     expected = fake_quant_on_grid(on_grid + adapter.lora_b @ adapter.lora_a, spec, adapter.grid)
     remove_fake_quant(model)
     assert torch.allclose(experts.gate_up_proj, expected)
+
+def test_pipeline_releases_first_pass_after_qat_and_resumes_past_it(tmp_path: Path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from appliance.quant import pipeline, window_job
+
+    monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
+    calls = []
+
+    def reconstruct(cfg):
+        out = Path(cfg["output_dir"])
+        calls.append(out.name)
+        for part in ("research-hf", "packed"):
+            (out / part).mkdir(parents=True, exist_ok=True)
+            (out / part / "weights.safetensors").write_text("x")
+        manifest = {"precision_map": str(out / "precision-map.json"),
+                    "research_model": str(out / "research-hf"), "status": "succeeded"}
+        (out / "precision-map.json").write_text("{}")
+        (out / "mixed-manifest.json").write_text(json.dumps(manifest))
+        return manifest
+
+    def qat(command, check):
+        cfg = json.loads(Path(command[command.index("--config") + 1]).read_text())
+        recovered = Path(cfg["output_dir"]) / "recovered"
+        if recovered.exists():  # the real job returns early once it has succeeded
+            return SimpleNamespace(returncode=0)
+        assert Path(cfg["student_model"]).is_dir()  # QAT reads the first pass
+        recovered.mkdir(parents=True)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(window_job, "run", reconstruct)
+    monkeypatch.setattr(pipeline.subprocess, "run", qat)
+    cfg = {"engine": "upstream_window", "preset": "aggressive", "source_model": "src",
+           "output_dir": str(tmp_path / "first"),
+           "recovery": {"enabled": True, "dataset": "recovery.jsonl"}}
+    pipeline.run(cfg)
+    first = tmp_path / "first"
+    assert calls == ["first", "requantized"]
+    assert not (first / "research-hf").exists() and not (first / "packed").exists()
+    assert (first / "first-pass-released.json").exists()
+    assert (first / "requantized" / "research-hf").exists()
+    # A resume skips the released first pass instead of re-entering it.
+    pipeline.run({**cfg, "resume": True})
+    assert calls == ["first", "requantized", "requantized"]
+    pipeline.run({**cfg, "keep_intermediates": True, "output_dir": str(tmp_path / "keep")})
+    assert (tmp_path / "keep" / "research-hf").exists()

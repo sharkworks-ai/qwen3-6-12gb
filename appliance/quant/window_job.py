@@ -34,6 +34,27 @@ def windows(total, width, stride):
         start = commit
 
 
+def quantizer_cost(numel, spec):
+    """Rough training-state bytes of one quantizer: per-level logits, gradients, optimizer."""
+    levels = 3 if spec["bits"] == 1.58 else 2 ** int(spec["bits"])
+    return numel * levels * 12
+
+
+def assign_devices(costs, base, devices):
+    """Place quantizers largest first on the device with the least load.
+
+    One window often holds a single block whose fused expert quantizers dominate memory;
+    keeping them all on the block's GPU left the other GPU idle at a 32 GB peak.
+    """
+    load = {str(d): base.get(str(d), 0) for d in devices}
+    placement = {}
+    for name in sorted(costs, key=costs.get, reverse=True):
+        device = min(load, key=load.get)
+        placement[name] = device
+        load[device] += costs[name]
+    return placement
+
+
 def run_blocks(blocks, quantizers, prefix, start, inputs, cache, sample, devices):
     value = inputs
     for offset, block in enumerate(blocks):
@@ -46,8 +67,9 @@ def run_blocks(blocks, quantizers, prefix, start, inputs, cache, sample, devices
             args[0] = value.to(device)
         else:
             kwargs["hidden_states"] = value.to(device)
+        # Quantizers may live on another GPU than their block; move only the output.
         weights = {
-            name[len(f"{prefix}.{index}.") :]: q()
+            name[len(f"{prefix}.{index}.") :]: q().to(device)
             for name, q in quantizers.items()
             if name.startswith(f"{prefix}.{index}.")
         }
@@ -164,17 +186,33 @@ def _run(cfg):
         ]
         quantizers = {}
         hessians = {}
+        targets = {}
+        base = {}
         for offset, block in enumerate(blocks):
             index = start + offset
             path = cache / str(index) / "hessians.safetensors"
             hessians.update(load_file(str(path)) if path.exists() else {})
+            device = str(devices[offset % len(devices)])
+            base[device] = base.get(device, 0) + sum(
+                p.numel() * p.element_size() for p in block.parameters()
+            )
             for name, weight in block.named_parameters():
                 full = f"{prefix}.{index}.{name}"
-                if full not in precision["tensors"]:
-                    continue
-                quantizers[full] = ProjectionQuantizer(
-                    weight, precision["tensors"][full], components, hessians.get(full), cfg
-                )
+                if full in precision["tensors"]:
+                    targets[full] = weight
+        placement = assign_devices(
+            {n: quantizer_cost(w.numel(), precision["tensors"][n]) for n, w in targets.items()},
+            base,
+            devices,
+        )
+        for full, weight in targets.items():
+            quantizers[full] = ProjectionQuantizer(
+                weight.to(placement[full]),
+                precision["tensors"][full],
+                components,
+                hessians.get(full),
+                cfg,
+            )
         if not quantizers:
             raise ValueError(f"No quantizers in window {start}:{end}")
         optimizer = Lion(
@@ -355,6 +393,17 @@ def _run(cfg):
         "research_files": {p.name: file_hash(p) for p in research.iterdir() if p.is_file()},
     }
     save_json(output / "mixed-manifest.json", manifest)
+    if not cfg.get("keep_intermediates"):
+        # Teacher cache, student inputs and window checkpoints only serve resume; the
+        # manifest, packed tensors and export are the result. Drop them from the resume
+        # record too, so a later resume of this succeeded run still verifies.
+        for part in (cache, student, checkpoints):
+            shutil.rmtree(part, ignore_errors=True)
+        state["cache"] = {}
+        state.pop("active", None)
+        state["exports"] = {
+            k: v for k, v in state.get("exports", {}).items() if k.startswith("research-hf/")
+        }
     state["status"] = "succeeded"
     save_json(state_path, state)
     return manifest

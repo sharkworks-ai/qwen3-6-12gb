@@ -13,7 +13,7 @@ from appliance.quant.mixed_job import file_hash
 from appliance.quant.presets import preset
 from appliance.quant.upstream import load_components
 from appliance.quant.upstream_params import ProjectionQuantizer, typical_step_for_zero_groups
-from appliance.quant.window_job import run, windows
+from appliance.quant.window_job import assign_devices, quantizer_cost, run, windows
 
 
 @pytest.fixture
@@ -171,6 +171,9 @@ def test_actual_moe_window_training_and_resume(upstream, tmp_path, monkeypatch, 
     result = run(cfg)
     assert result["status"] == "succeeded" and result["runtime_ready"] is False
     assert result["implementation"] == "pinned_gsq_catq_sliding_adapter"
+    # Resume-only state is removed once the reconstruction succeeds.
+    for part in ("teacher-cache", "student-inputs", "training-checkpoints"):
+        assert not (tmp_path / "output" / part).exists()
     if name == "extreme":
         assert any(x["spec"]["bits"] == 1.58 for x in result["tensors"].values())
     loaded = type(model).from_pretrained(result["research_model"])
@@ -221,3 +224,23 @@ def test_zero_groups_get_the_typical_step_not_gptq_fallback():
     assert fixed[0, 0] == fixed[2, 2] == scales[~zero].abs().median()
     assert torch.equal(fixed[~zero], scales[~zero])
     assert typical_step_for_zero_groups(torch.randn(4, 256), scales, 64) is scales
+
+
+def test_window_quantizers_spread_across_gpus_by_size():
+    # One block per window: its expert quantizers dominate memory and used to share the
+    # block's GPU with everything else, peaking at 32 GB while the other GPU sat idle.
+    two_bit, four_bit = {"bits": 2}, {"bits": 4}
+    costs = {
+        "experts.gate_up_proj": quantizer_cost(268_000_000, two_bit),
+        "experts.down_proj": quantizer_cost(134_000_000, two_bit),
+        "self_attn.q_proj": quantizer_cost(8_000_000, four_bit),
+        "shared_expert.up_proj": quantizer_cost(1_000_000, four_bit),
+    }
+    placement = assign_devices(costs, {"cuda:0": 900_000_000}, ["cuda:0", "cuda:1"])
+    assert placement["experts.gate_up_proj"] == "cuda:1"
+    assert placement["experts.down_proj"] == "cuda:0"
+    load = {"cuda:0": 900_000_000, "cuda:1": 0}
+    for name, device in placement.items():
+        load[device] += costs[name]
+    assert max(load.values()) < 0.7 * sum(load.values())
+    assert set(assign_devices(costs, {}, ["cpu"]).values()) == {"cpu"}

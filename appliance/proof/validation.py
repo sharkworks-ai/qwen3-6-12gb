@@ -162,6 +162,7 @@ def run(cfg):
                 "window_devices": cfg["window_devices"],
                 "resume": cfg["resume"],
                 "dry_run": False,
+                "keep_intermediates": bool(cfg.get("keep_intermediates")),
                 "steps": cfg["steps"],
                 "max_samples": cfg["max_samples"],
                 "calibration_length": cfg["calibration_length"],
