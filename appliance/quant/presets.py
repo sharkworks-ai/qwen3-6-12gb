@@ -35,7 +35,9 @@ def preset(name: str) -> dict:
         "cuda_devices": "0,1",
         "dry_run": True,
         "resume": False,
-        "sensitive_tensors": [{"pattern": r"\.layers\.(0|1)\..*\.experts\.", "bits": 3}]
+        # 2-bit GSQ, not 3: a 3-bit quantizer keeps state for 8 levels per weight, and
+        # layers 0 and 1 share one 2-block window, which then exceeds 2x32 GB GPUs.
+        "sensitive_tensors": [{"pattern": r"\.layers\.(0|1)\..*\.experts\.", "bits": 2}]
         if name == "extreme"
         else [],
         "recovery": {

@@ -25,7 +25,8 @@ def test_policy_matches_individual_and_fused_experts():
     shared = "model.layers.2.mlp.shared_expert.down_proj.weight"
     a, c = preset("aggressive"), preset("extreme")
     assert tensor_spec(individual, a)["bits"] == 2
-    assert tensor_spec(individual, c)["bits"] == 3
+    # Sensitive early-layer experts: 2-bit GSQ, so the first 2-block window fits 2x32 GB.
+    assert tensor_spec(individual, c)["bits"] == 2
     assert tensor_spec(fused, c)["bits"] == 1.58
     assert tensor_spec(shared, c)["bits"] == 4
     assert tensor_spec("model.layers.2.mlp.gate.weight", c) is None

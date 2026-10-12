@@ -13,7 +13,13 @@ from appliance.quant.mixed_job import file_hash
 from appliance.quant.presets import preset
 from appliance.quant.upstream import load_components
 from appliance.quant.upstream_params import ProjectionQuantizer, typical_step_for_zero_groups
-from appliance.quant.window_job import assign_devices, quantizer_cost, run, windows
+from appliance.quant.window_job import (
+    assign_devices,
+    check_window_fits,
+    quantizer_cost,
+    run,
+    windows,
+)
 
 
 @pytest.fixture
@@ -236,11 +242,27 @@ def test_window_quantizers_spread_across_gpus_by_size():
         "self_attn.q_proj": quantizer_cost(8_000_000, four_bit),
         "shared_expert.up_proj": quantizer_cost(1_000_000, four_bit),
     }
-    placement = assign_devices(costs, {"cuda:0": 900_000_000}, ["cuda:0", "cuda:1"])
+    placement, estimated = assign_devices(costs, {"cuda:0": 900_000_000}, ["cuda:0", "cuda:1"])
     assert placement["experts.gate_up_proj"] == "cuda:1"
     assert placement["experts.down_proj"] == "cuda:0"
     load = {"cuda:0": 900_000_000, "cuda:1": 0}
     for name, device in placement.items():
         load[device] += costs[name]
     assert max(load.values()) < 0.7 * sum(load.values())
-    assert set(assign_devices(costs, {}, ["cpu"]).values()) == {"cpu"}
+    assert estimated == load
+    assert set(assign_devices(costs, {}, ["cpu"])[0].values()) == {"cpu"}
+
+
+def test_window_memory_check_rejects_oversized_windows(monkeypatch):
+    # Extreme's first 2-block window with 3-bit sensitive experts needed about 43 GiB per
+    # 32 GB GPU and crashed with an OOM while building quantizers; fail up front instead.
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda, "get_device_properties", lambda d: SimpleNamespace(total_memory=32 * 2**30)
+    )
+    check_window_fits({"cuda:0": 25 * 2**30, "cuda:1": 25 * 2**30}, 0, 2)
+    check_window_fits({"cpu": 10**15}, 0, 2)
+    with pytest.raises(ValueError, match=r"Window 0:2 needs about 43 GiB on cuda:1"):
+        check_window_fits({"cuda:0": 20 * 2**30, "cuda:1": 43 * 2**30}, 0, 2)

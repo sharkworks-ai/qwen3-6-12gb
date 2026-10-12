@@ -35,9 +35,28 @@ def windows(total, width, stride):
 
 
 def quantizer_cost(numel, spec):
-    """Rough training-state bytes of one quantizer: per-level logits, gradients, optimizer."""
+    """Rough training bytes of one quantizer, per level and weight.
+
+    GSQ keeps BF16 logits, gradients and optimizer state per level (6 bytes); its Gumbel
+    softmax temporaries roughly double that. 12 bytes per level matches the about 30 GB
+    one aggressive (2-bit expert) layer used on a single 5090.
+    """
     levels = 3 if spec["bits"] == 1.58 else 2 ** int(spec["bits"])
     return numel * levels * 12
+
+
+def check_window_fits(load, start, end, headroom=0.95):
+    """Fail clearly before building quantizers that cannot fit, instead of an OOM midway."""
+    for device, needed in load.items():
+        if not device.startswith("cuda") or not torch.cuda.is_available():
+            continue
+        capacity = torch.cuda.get_device_properties(torch.device(device)).total_memory
+        if needed > headroom * capacity:
+            raise ValueError(
+                f"Window {start}:{end} needs about {needed / 2**30:.0f} GiB on {device} "
+                f"({capacity / 2**30:.0f} GiB): lower sensitive or expert bits, "
+                "window_size, or add GPUs"
+            )
 
 
 def assign_devices(costs, base, devices):
@@ -52,7 +71,7 @@ def assign_devices(costs, base, devices):
         device = min(load, key=load.get)
         placement[name] = device
         load[device] += costs[name]
-    return placement
+    return placement, load
 
 
 def run_blocks(blocks, quantizers, prefix, start, inputs, cache, sample, devices):
@@ -200,11 +219,12 @@ def _run(cfg):
                 full = f"{prefix}.{index}.{name}"
                 if full in precision["tensors"]:
                     targets[full] = weight
-        placement = assign_devices(
+        placement, load = assign_devices(
             {n: quantizer_cost(w.numel(), precision["tensors"][n]) for n, w in targets.items()},
             base,
             devices,
         )
+        check_window_fits(load, start, end)
         for full, weight in targets.items():
             quantizers[full] = ProjectionQuantizer(
                 weight.to(placement[full]),
