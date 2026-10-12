@@ -55,6 +55,9 @@ class Stages:
 
         worker_identity = digest(stable(worker))
         old = self.state["stages"].get(name)
+        if old and old.get("releasing"):
+            # A release was interrupted between deleting and re-recording hashes.
+            self._finish_release(name, old)
         if old and old.get("status") == "succeeded":
             if old["identity"] != worker_identity or hashes(stage) != old["hashes"]:
                 raise ValueError(f"Stage integrity failure: {name}")
@@ -133,12 +136,25 @@ class Stages:
         target = (stage / relative).resolve()
         if stage.resolve() not in target.parents:
             raise ValueError(f"Release path must stay inside stage {name}: {relative}")
-        if target.is_dir():
-            shutil.rmtree(target)
-        elif target.exists():
-            target.unlink()
-        released = item.setdefault("released", [])
-        if relative not in released:
-            released.append(relative)
+        # Record the intent before deleting, so an interruption mid-delete is finished
+        # on resume instead of failing the stage's integrity check.
+        pending = item.setdefault("releasing", [])
+        if relative not in pending:
+            pending.append(relative)
+        save_json(self.path, self.state)
+        self._finish_release(name, item)
+
+    def _finish_release(self, name, item):
+        stage = self.output / name
+        for relative in item.get("releasing", []):
+            target = (stage / relative).resolve()
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            released = item.setdefault("released", [])
+            if relative not in released:
+                released.append(relative)
+        item.pop("releasing", None)
         item["hashes"] = hashes(stage)
         save_json(self.path, self.state)

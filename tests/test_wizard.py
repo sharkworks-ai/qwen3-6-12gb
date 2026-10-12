@@ -148,6 +148,11 @@ def fake_registered_stages(monkeypatch, calls, fail):
 
     def fake_process(command, **kwargs):
         worker = json.loads(Path(command[-1]).read_text())
+        if worker["operation"] == "evaluate":
+            # Lineage measurements of intermediate models.
+            calls.append(("evaluate", {"source_model": worker["source_model"]}))
+            save_json(Path(worker["stage_dir"]) / "result.json", {"heldout_loss": 1.0})
+            return SimpleNamespace(returncode=0)
         cfg = worker["job_config"]
         kind = worker["job_kind"]
         calls.append((kind, cfg))
@@ -208,14 +213,20 @@ def test_orchestrator_wires_stages_and_resume_integrity(monkeypatch, tmp_path):
     fail["value"] = False
     report = job.run({"answers": {**answers, "resume": True}})
     assert [kind for kind, cfg in calls] == [
+        "evaluate",
         "profile",
         "prune",
+        "evaluate",
         "sft",
         "merge",
         "merge",
         "ayot",
         "full_validation",
     ]
+    # Held-out loss is measured for the original and pruned models, not only after SFT.
+    measured = [cfg["source_model"] for kind, cfg in calls if kind == "evaluate"]
+    assert measured == [str(Path(answers["source_model"]).resolve()), str(output / "prune/model")]
+    assert set(report["lineage"]) >= {"original", "pruned", "sft", "variants"}
     kinds = dict(calls)
     # Pruned model trains as one model-parallel process; profiling may offload BF16.
     assert kinds["sft"]["model"] == str(output / "prune/model")
@@ -253,12 +264,20 @@ def test_opt_in_source_release_frees_cache_blobs_and_keeps_resume(monkeypatch, t
         (Path(answers["source_model"]) / "config.json").read_text()
     )
     (snapshot / "model.safetensors").symlink_to(blob)
+    # A sibling snapshot of the same repo shares one blob; it must keep working.
+    shared = repo / "blobs" / "tokenizer"
+    shared.write_text("tokenizer")
+    (snapshot / "tokenizer.json").symlink_to(shared)
+    sibling = repo / "snapshots" / "other-rev"
+    sibling.mkdir()
+    (sibling / "tokenizer.json").symlink_to(shared)
     answers["source_model"] = str(snapshot)
     monkeypatch.setenv("QWEN12G_DATA_ROOT", str(tmp_path))
     calls = []
     fake_registered_stages(monkeypatch, calls, {"value": False})
     job.run({"answers": answers})
     assert not snapshot.exists() and not blob.exists()
+    assert shared.exists() and (sibling / "tokenizer.json").read_text() == "tokenizer"
     count = len(calls)
     # Planning and resume use the recorded hashes of the released source.
     assert compile_plan(answers, str(tmp_path))["config"]["release_source_after_merge"]
@@ -341,16 +360,19 @@ def test_automatic_harness_provenance_and_quality_gates(monkeypatch, tmp_path):
 def test_candidate_selection_requires_quality_and_measured_resources():
     from appliance.wizard.job import rank_candidates
 
+    def contexts(peak, prompt=250000, generated=8192):
+        common = {"peak_allocated_mib": peak, "peak_device_mib": peak, "max_new_tokens": 8192}
+        return [
+            {**common, "prompt_tokens": prompt, "generated_tokens": 3, "needle_found": True},
+            {**common, "prompt_tokens": prompt, "generated_tokens": generated,
+             "needle_found": False, "forced_length": True},
+        ]
+
     report = {
         "target_vram_gib": 11.5,
+        "required_context_tokens": 250000,
         "variants": {
-            name: {
-                "metrics": {"heldout_loss": loss},
-                "bundle": name,
-                "contexts": [
-                    {"peak_allocated_mib": peak, "peak_device_mib": peak, "needle_found": True}
-                ],
-            }
+            name: {"metrics": {"heldout_loss": loss}, "bundle": name, "contexts": contexts(peak)}
             for name, loss, peak in [("aggressive", 2, 1000), ("extreme", 1, 14000)]
         },
     }
@@ -358,6 +380,14 @@ def test_candidate_selection_requires_quality_and_measured_resources():
     benchmark = {"candidates": {n: {"gate": {"pass": True}} for n in report["variants"]}}
     assert rank_candidates(report, benchmark)["recommended"] == "aggressive"
     report["variants"]["aggressive"]["contexts"][0]["peak_device_mib"] = None
+    assert rank_candidates(report, benchmark)["recommended"] is None
+    # A short prompt with one generated token must not count as full-context evidence.
+    report["variants"]["aggressive"]["contexts"] = contexts(1000, prompt=256, generated=1)
+    selection = rank_candidates(report, benchmark)
+    assert selection["recommended"] is None
+    assert selection["candidates"][1]["context_coverage_pass"] is False
+    # Nor may a forced-length run that stopped before its budget.
+    report["variants"]["aggressive"]["contexts"] = contexts(1000, generated=4096)
     assert rank_candidates(report, benchmark)["recommended"] is None
 
 
@@ -422,3 +452,63 @@ def test_rocm_plan_avoids_nvidia_only_kbit_default(tmp_path, monkeypatch):
     assert compile_plan(answers, str(tmp_path))["config"]["load_in_4bit"] is False
     monkeypatch.setenv("QWEN12G_GPU_BACKEND", "cuda")
     assert compile_plan(answers, str(tmp_path))["config"]["load_in_4bit"] is True
+
+
+def test_interrupted_release_finishes_on_resume(monkeypatch, tmp_path):
+    # Deleting before recording left a stage whose files no longer matched its hashes,
+    # so resume failed its integrity check. Intent is now recorded first.
+    from appliance.proof import state
+
+    monkeypatch.setattr(state.NvidiaTelemetry, "start", lambda _: None)
+    monkeypatch.setattr(state.NvidiaTelemetry, "stop", lambda _: None)
+
+    def fake_process(command, **kwargs):
+        worker = json.loads(Path(command[-1]).read_text())
+        stage = Path(worker["stage_dir"])
+        (stage / "model").mkdir(exist_ok=True)
+        (stage / "model" / "weights").write_text("w")
+        save_json(stage / "result.json", {"status": "completed"})
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(state.subprocess, "run", fake_process)
+    stages = state.Stages({"cuda_devices": "0"}, tmp_path, "identity")
+    stages.run("prune", "registered")
+    original = state.Stages._finish_release
+    monkeypatch.setattr(state.Stages, "_finish_release", lambda self, name, item: (
+        state.shutil.rmtree(tmp_path / name / "model"), (_ for _ in ()).throw(RuntimeError("interrupted"))
+    ))
+    with pytest.raises(RuntimeError, match="interrupted"):
+        stages.release("prune", "model")
+    monkeypatch.setattr(state.Stages, "_finish_release", original)
+    resumed = state.Stages({"cuda_devices": "0", "resume": True}, tmp_path, "identity")
+    assert resumed.run("prune", "registered") == {"status": "completed"}
+    item = resumed.state["stages"]["prune"]
+    assert item["released"] == ["model"] and "releasing" not in item
+
+
+def test_heldout_overlap_compares_tasks_not_templated_follow_ups(tmp_path):
+    from appliance.wizard.job import heldout_overlap
+
+    task = "Write a Java program that multiplies two integers using repeated addition only."
+    follow_up = "Return the final corrected function again in exactly one code block, no prose."
+
+    def conversation(*users):
+        return json.dumps({"messages": [{"role": "user", "content": u} for u in users]}) + "\n"
+
+    (tmp_path / "train.jsonl").write_text(conversation("A different task: sort a list in place.", follow_up))
+    (tmp_path / "heldout.jsonl").write_text(
+        json.dumps({"text": f"system: be precise\n\nuser: {task}\n\nassistant: ok\n\nuser: {follow_up}"}) + "\n"
+    )
+    config = {"heldout_file": str(tmp_path / "heldout.jsonl"), "training_file": str(tmp_path / "train.jsonl")}
+    assert heldout_overlap(config) == {"training_file": 0}
+    (tmp_path / "train.jsonl").write_text(conversation(task.upper() + "  "))
+    assert heldout_overlap(config) == {"training_file": 1}
+
+
+def test_plan_rejects_unknown_qat_loss_scope(tmp_path):
+    answers = {**real_answers(tmp_path), "qat_loss_scope": "everything"}
+    with pytest.raises(ValueError, match="qat_loss_scope"):
+        compile_plan(answers, str(tmp_path))
+    plan = compile_plan({**answers, "qat_loss_scope": "assistant"}, str(tmp_path))
+    assert plan["config"]["recovery"]["loss_scope"] == "assistant"
+    assert plan["config"]["required_context_tokens"] == 250000

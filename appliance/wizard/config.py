@@ -140,6 +140,9 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
     profile = str(answers.get("benchmark_profile", "diagnostics"))
     if profile != "diagnostics" and profile not in harness_profiles():
         raise ValueError("Selected isolated benchmark harness is not configured")
+    qat_scope = str(answers.get("qat_loss_scope", "assistant"))
+    if qat_scope not in {"assistant", "all"}:
+        raise ValueError("qat_loss_scope must be assistant or all")
     max_memory = {
         **{str(i): f"{integer(answers, 'gpu_memory_gib', 28, 4, 192)}GiB" for i in range(count)},
         "cpu": f"{integer(answers, 'cpu_memory_gib', 80, 4, 1024)}GiB",
@@ -172,6 +175,13 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "train_steps": integer(answers, "train_steps", 200, 1, 100000),
         "train_length": integer(answers, "train_length", 4096, 128, 32768),
         "context_lengths": [context],
+        # Candidate selection needs needle and forced-length checks at this length.
+        "required_context_tokens": integer(
+            answers, "required_context_tokens", 250000, 256, 262144
+        ),
+        # Token-weighted held-out loss over this many records and tokens per record.
+        "eval_samples": integer(answers, "eval_samples", 32, 1, 100000),
+        "eval_length": integer(answers, "eval_length", 1024, 128, 32768),
         "context_repeats": integer(answers, "context_repeats", 5, 1, 20),
         "max_new_tokens": generated,
         "runtime_device": "cuda:0",
@@ -182,6 +192,8 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
             # LoRA QAT: one process sharded across the selected GPUs.
             "num_processes": 1,
             "trainable": "lora",
+            # Assistant-only, matching SFT; "all" is an explicit experiment.
+            "loss_scope": qat_scope,
             "max_memory": max_memory,
             "max_steps": integer(answers, "qat_steps", 200, 1, 100000),
             "save_steps": 50,

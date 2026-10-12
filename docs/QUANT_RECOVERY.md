@@ -23,6 +23,8 @@ When the precision map sits in a reconstruction bundle, QAT rounds each tensor o
 
 By default (`trainable: "lora"`) the model is frozen and each quantized tensor trains a low-rank correction through the quantizer: the forward weight is `fake_quant(W + B @ A)`, with one adapter per expert for 3-D tensors (`lora_rank`, default 16; `lora_learning_rate`, default 1e-4). One process holds the pruned BF16 student sharded across the GPUs (`device_map="auto"`, GPU-only `max_memory`), with gradient checkpointing so each layer's fake-quantized weights are recomputed in backward. Removing the parametrization leaves the merged, fake-quantized weight that re-quantization starts from.
 
+QAT scores only assistant tokens by default (`loss_scope: "assistant"`, matching SFT), using TRL's training chat template for the assistant mask; in the r0b0tlab recovery set that is 25% of tokens. `loss_scope: "all"` also trains on system, user and tool text and is kept as an explicit experiment. Adapters are initialized after `seed` is set.
+
 `trainable: "full"` keeps the previous FSDP full-parameter path. It needs weights, gradients and optimizer state for every parameter (roughly 8 bytes per parameter, about 140 GB for a 128-expert student), which does not fit 2x32 GB GPUs.
 
 Modes:

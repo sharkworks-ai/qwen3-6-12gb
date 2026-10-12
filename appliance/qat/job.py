@@ -7,7 +7,7 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     Trainer,
-    DataCollatorForLanguageModeling,
+    DataCollatorForSeq2Seq,
 )
 from appliance.qat.parametrize import (
     apply_fake_quant,
@@ -62,6 +62,10 @@ def main():
     p.add_argument("--config", required=True)
     a = p.parse_args()
     cfg = json.loads(Path(a.config).read_text())
+    # Seed before any adapter is initialized, so identical configs start identically.
+    from transformers import set_seed
+
+    set_seed(int(cfg.get("seed", 42)))
     # "lora" trains low-rank corrections through the quantizer on a frozen model, one
     # process sharded across GPUs. "full" fine-tunes every weight with FSDP, which needs
     # optimizer state for the whole model and does not fit 2x32 GB for a 35B MoE.
@@ -122,20 +126,43 @@ def main():
     ds = load_dataset("json", data_files=cfg["dataset"], split="train")
     ml = int(cfg.get("max_length", 8192))
 
+    # "assistant" (default) matches SFT: only assistant tokens are scored. "all" also
+    # trains on system, user and tool text, and is kept as an explicit experiment.
+    scope = cfg.get("loss_scope", "assistant")
+    if scope not in {"assistant", "all"}:
+        raise ValueError("loss_scope must be assistant or all")
+    training_template = None
+    if scope == "assistant":
+        from trl.chat_template_utils import get_training_chat_template
+
+        # Stock Qwen templates lack the {% generation %} markers assistant masks need.
+        training_template = get_training_chat_template(tok) or tok.chat_template
+
+    def flat(values):
+        return values[0] if values and isinstance(values[0], list) else values
+
     def enc(r):
-        text = (
-            tok.apply_chat_template(
-                r["messages"],
-                tools=r.get("tools") or None,
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-            if "messages" in r
-            else r.get("text", "")
+        if "messages" not in r:
+            z = tok(r.get("text", ""), truncation=True, max_length=ml)
+            return {**z, "labels": list(z["input_ids"])}
+        z = tok.apply_chat_template(
+            r["messages"],
+            tools=r.get("tools") or None,
+            chat_template=training_template,
+            add_generation_prompt=False,
+            tokenize=True,
+            return_dict=True,
+            return_assistant_tokens_mask=scope == "assistant",
+            truncation=True,
+            max_length=ml,
         )
-        z = tok(text, truncation=True, max_length=ml)
-        z["labels"] = z["input_ids"].copy()
-        return z
+        ids = flat(list(z["input_ids"]))
+        if scope == "assistant":
+            mask = flat(list(z["assistant_masks"]))
+            labels = [t if m else -100 for t, m in zip(ids, mask, strict=True)]
+        else:
+            labels = list(ids)
+        return {"input_ids": ids, "attention_mask": [1] * len(ids), "labels": labels}
 
     ds = ds.map(enc, remove_columns=ds.column_names)
     out.mkdir(parents=True, exist_ok=True)
@@ -183,7 +210,8 @@ def main():
         args=args,
         train_dataset=ds,
         processing_class=tok,
-        data_collator=DataCollatorForLanguageModeling(tok, mlm=False),
+        # Keeps the assistant-only labels (DataCollatorForLanguageModeling rebuilds them).
+        data_collator=DataCollatorForSeq2Seq(tok, label_pad_token_id=-100),
     )
     if rank == 0:
         save_json(manifest, {"identity": identity, "status": "running"})

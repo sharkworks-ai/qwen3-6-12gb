@@ -18,6 +18,7 @@ from appliance.quant.window_job import (
     check_window_fits,
     quantizer_cost,
     run,
+    sample_order,
     windows,
 )
 
@@ -208,7 +209,11 @@ def test_actual_moe_window_training_and_resume(upstream, tmp_path, monkeypatch, 
         n: t["sha256"] for n, t in result["tensors"].items()
     }
     cfg["resume"] = True
+    # Clean-up interrupted after the pruned record was saved: resume finishes it.
+    (tmp_path / "output" / "teacher-cache").mkdir()
     assert run(cfg)["identity"] == result["identity"]
+    assert not (tmp_path / "output" / "teacher-cache").exists()
+    assert result["training_coverage"]["samples_trained_per_window"] == 1
     cfg["window_stride"] = 2
     with pytest.raises(ValueError, match="mismatch|Require"):
         run(cfg)
@@ -277,3 +282,27 @@ def test_ternary_quantizer_returns_the_source_dtype(upstream):
     assert q().dtype == torch.bfloat16
     q().float().square().mean().backward()
     assert q.lora_b.grad.abs().sum() > 0
+
+
+def test_reconstruction_sample_order_covers_the_set_reproducibly():
+    # Cycling from 0 with 100 steps over 128 samples never trained on the last 28.
+    order = sample_order(128, 42)
+    assert sorted(order) == list(range(128)) and order != list(range(128))
+    assert sample_order(128, 42) == order and sample_order(128, 43) != order
+
+
+def test_needle_prompts_vary_position_secret_and_include_decoys():
+    from appliance.proof.validation import needle_prompt
+
+    class Tokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return [ord(c) for c in text]
+
+    prompts = [needle_prompt(Tokenizer(), 6000, r) for r in range(3)]
+    assert all(len(tokens) == 6000 for tokens, _, _ in prompts)
+    assert len({secret for _, secret, _ in prompts}) == 3
+    assert [position for _, _, position in prompts] == [0.1, 0.5, 0.9]
+    tokens, secret, _ = prompts[0]
+    text = "".join(chr(t) for t in tokens)
+    assert text.count(f"current secret code is {secret}") == 1
+    assert text.count("A retired code was") == 4

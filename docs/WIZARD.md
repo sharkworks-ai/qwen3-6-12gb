@@ -38,6 +38,23 @@ A CLI run uses the same answers:
 
 Run `python -m appliance.wizard.job --config /data/wizard-config.json`. The web runner applies `CUDA_VISIBLE_DEVICES`; direct CLI users must select the same physical GPUs themselves.
 
+## Evidence for selection
+
+- **Lineage.** The report's `lineage` records token-weighted held-out loss for the
+  original model, the pruned model, the SFT model, each variant's first-pass
+  reconstruction and QAT output, and the final packed bundle, all on the same
+  held-out records (`eval_samples`, default 32; `eval_length`, default 1024 tokens).
+  Total loss from the original model is visible, not only loss after quantization.
+- **Contamination.** A run fails if any held-out task (first user turn) also appears in
+  the training, recovery or teacher-prompt data. Later turns are not compared: they
+  are often templated follow-ups shared by unrelated conversations.
+- **Context.** Each needle check varies the needle position and secret and adds decoy
+  codes. One forced-length run per variant at the longest context cannot stop early,
+  so it proves the whole `max_new_tokens` budget fits. A candidate is eligible only
+  when needle checks reached `required_context_tokens` (default 250,000) and the
+  forced-length run there generated its full budget within the memory target.
+  Repository-scale tasks and tool-history recall still need the isolated harness.
+
 ## Disk budget
 
 A full-model run writes several BF16 copies of the model, so by default the wizard

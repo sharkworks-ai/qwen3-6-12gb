@@ -44,6 +44,7 @@ def evaluate(cfg, source, *, bundle=None, baseline=None):
         raise ValueError("Empty held-out corpus")
     rows = rows[: int(cfg.get("eval_samples", len(rows)))]
     losses, outputs = [], []
+    total_nll, scored = 0.0, 0
     for text in rows:
         tokens = tokenizer(
             text,
@@ -55,10 +56,18 @@ def evaluate(cfg, source, *, bundle=None, baseline=None):
         if not torch.isfinite(result.loss) or not torch.isfinite(result.logits).all():
             raise ValueError("Non-finite evaluation")
         losses.append(float(result.loss))
+        # The model's loss is a mean over this record's predicted tokens.
+        predicted = tokens.input_ids.shape[-1] - 1
+        total_nll += float(result.loss) * predicted
+        scored += predicted
         if cfg.get("capture_logits", True):
             outputs.append(result.logits.detach().float().cpu())
     payload = {
-        "heldout_loss": sum(losses) / len(losses),
+        # Token-weighted: long records count in proportion to the tokens they score.
+        "heldout_loss": total_nll / max(1, scored),
+        "heldout_loss_per_record": sum(losses) / len(losses),
+        "scored_tokens": scored,
+        "eval_length": int(cfg.get("eval_length", cfg.get("sequence_length", 128))),
         "samples": len(rows),
         "runtime": "packed_eager" if bundle else "hf",
         "resident_tensor_bytes": sum(
@@ -110,3 +119,24 @@ def evaluate(cfg, source, *, bundle=None, baseline=None):
         # scale rounding. Report a dtype-dependent bound, not bitwise equivalence.
         payload["export_parity_pass"] = maximum <= (0.25 if dtype == torch.bfloat16 else 0.02)
     return payload
+
+
+def main():
+    """Measure held-out loss of one model, for lineage checkpoints inside a pipeline."""
+    import argparse
+
+    from appliance.stages.common import load_config, save_json
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--source", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+    cfg = {**load_config(args.config), "capture_logits": False}
+    payload = evaluate(cfg, args.source)
+    payload.pop("logits", None)
+    save_json(args.output, payload)
+
+
+if __name__ == "__main__":
+    main()

@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Debian's pip has no RECORD file and cannot be uninstalled, so upgrade alongside it.
 RUN python3 -m pip install --break-system-packages --ignore-installed --upgrade pip setuptools wheel && \
     python3 -m pip install --break-system-packages \
-      torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}
+      torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url ${PYTORCH_INDEX_URL}
 
 WORKDIR /workspace
 

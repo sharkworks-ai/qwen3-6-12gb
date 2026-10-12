@@ -34,25 +34,16 @@ def context_check(cfg):
     generated = int(cfg["max_new_tokens"])
     if length + generated > 262144:
         raise ValueError("Prompt plus generation exceeds native context")
-    prefix = tokenizer.encode(
-        "Remember the secret code in these notes.\n", add_special_tokens=False
-    )
-    needle = tokenizer.encode("\nThe secret code is BLUE-7319.\n", add_special_tokens=False)
-    suffix = tokenizer.encode("\nReturn only the secret code.\n", add_special_tokens=False)
-    filler = tokenizer.encode(
-        "Ordinary project notes. No secret code here.\n", add_special_tokens=False
-    )
-    if not filler or length <= len(prefix) + len(needle) + len(suffix):
-        raise ValueError("Invalid context length or tokenizer")
-    available = length - len(prefix) - len(needle) - len(suffix)
-    repeated = (filler * (available // len(filler) + 1))[:available]
-    tokens = prefix + repeated[: available // 2] + needle + repeated[available // 2 :] + suffix
+    tokens, secret, position = needle_prompt(tokenizer, length, int(cfg.get("repetition", 0)))
     inputs = torch.tensor([tokens], device=cfg["runtime_device"])
     torch.cuda.reset_peak_memory_stats(cfg["runtime_device"])
+    forced = bool(cfg.get("forced_length"))
     output = model.generate(
         inputs,
         attention_mask=torch.ones_like(inputs),
         max_new_tokens=generated,
+        # Forced length: an early EOS would leave the generation budget unmeasured.
+        min_new_tokens=generated if forced else None,
         do_sample=False,
         use_cache=True,
         pad_token_id=tokenizer.eos_token_id,
@@ -61,11 +52,62 @@ def context_check(cfg):
     return {
         "prompt_tokens": length,
         "generated_tokens": output.shape[-1] - length,
-        "needle_found": "BLUE-7319" in answer,
-        "answer": answer,
+        "max_new_tokens": generated,
+        "forced_length": forced,
+        "needle_position": position,
+        "needle_found": secret in answer,
+        "answer": answer[:2000],
         "peak_allocated_mib": torch.cuda.max_memory_allocated(cfg["runtime_device"]) / 1024**2,
-        "note": "Needle retrieval diagnostic; not full-history coding validation.",
+        "note": "Needle retrieval with distractors, plus a forced-length memory run; "
+        "not repository-scale coding or tool-history validation.",
     }
+
+
+NEEDLE_POSITIONS = (0.1, 0.5, 0.9, 0.3, 0.7)
+
+
+def needle_prompt(tokenizer, length, repetition):
+    """Build an exact-length prompt with one secret code among decoy codes.
+
+    Each repetition moves the needle and changes the secret, so repeats test retrieval
+    across the window rather than re-running one identical prompt.
+    """
+    import random
+
+    rng = random.Random(1000 + repetition)
+    colours = ["BLUE", "RED", "GREEN", "AMBER", "VIOLET", "SILVER", "ORANGE", "TEAL"]
+
+    def code():
+        return f"{rng.choice(colours)}-{rng.randrange(1000, 10000)}"
+
+    secret = code()
+
+    def encode(text):
+        return tokenizer.encode(text, add_special_tokens=False)
+
+    prefix = encode("Remember the secret code in these notes. Old codes are retired.\n")
+    needle = encode(f"\nThe current secret code is {secret}.\n")
+    suffix = encode("\nReturn only the current secret code.\n")
+    filler = encode("Ordinary project notes. No secret code here.\n")
+    decoys = [encode(f"\nA retired code was {code()}; it is no longer valid.\n") for _ in range(4)]
+    fixed = len(prefix) + len(needle) + len(suffix) + sum(len(d) for d in decoys)
+    if not filler or length <= fixed + len(filler):
+        raise ValueError("Invalid context length or tokenizer")
+    available = length - fixed
+    body = (filler * (available // len(filler) + 1))[:available]
+    position = NEEDLE_POSITIONS[repetition % len(NEEDLE_POSITIONS)]
+    inserts = sorted(
+        [(int(available * position), needle)]
+        + [(int(available * (i + 1) / (len(decoys) + 1)), d) for i, d in enumerate(decoys)],
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    for at, piece in inserts:
+        body = body[:at] + piece + body[at:]
+    tokens = prefix + body + suffix
+    if len(tokens) != length:
+        raise ValueError("Needle prompt length mismatch")
+    return tokens, secret, position
 
 
 def run(cfg):
@@ -172,8 +214,20 @@ def run(cfg):
                     "enabled": True,
                     "dataset": str(paths["recovery_dataset"]),
                 },
+                # Measure the first pass and QAT output before the pipeline releases them.
+                "lineage_eval": {
+                    "heldout_file": str(paths["heldout_file"]),
+                    "eval_samples": cfg["eval_samples"],
+                    "eval_length": cfg["eval_length"],
+                    "max_memory": cfg["max_memory"],
+                    "device": cfg["device"],
+                    "chunk_rows": cfg["chunk_rows"],
+                    "hf_device_map": "auto",
+                },
             }
             stages.run(f"{name}-pipeline", "pipeline", quant_config=quant)
+            manifest = directory / "pipeline-manifest.json"
+            lineage = load_config(manifest).get("lineage", {}) if manifest.exists() else {}
             if not cfg.get("keep_intermediates"):
                 # Requantization succeeded, so the first-pass export and QAT state are
                 # superseded; drop them before the next variant starts.
@@ -192,22 +246,40 @@ def run(cfg):
                 baseline=str(output / "baseline" / "logits.pt"),
             )
             contexts = []
+            physical = str(cfg["cuda_devices"]).split(",")[
+                int(cfg["runtime_device"].split(":")[-1])
+            ]
+
+            def context(stage, final=final, physical=physical, contexts=contexts, **options):
+                result = stages.run(stage, "context", bundle=str(final), **options)
+                result["peak_device_mib"] = stages.state["stages"][stage]["peak_vram_mib"].get(
+                    physical
+                )
+                contexts.append(result)
+
             for length in cfg["context_lengths"]:
                 for repetition in range(int(cfg["context_repeats"])):
-                    result = stages.run(
+                    context(
                         f"{name}-context-{length}-{repetition}",
-                        "context",
-                        bundle=str(final),
                         context_length=length,
+                        repetition=repetition,
                     )
-                    physical = str(cfg["cuda_devices"]).split(",")[
-                        int(cfg["runtime_device"].split(":")[-1])
-                    ]
-                    result["peak_device_mib"] = stages.state["stages"][
-                        f"{name}-context-{length}-{repetition}"
-                    ]["peak_vram_mib"].get(physical)
-                    contexts.append(result)
-            variants[name] = {"metrics": metrics, "contexts": contexts, "bundle": str(final)}
+            # Needle answers stop early; prove the whole generation budget fits at the
+            # longest prompt with a run that cannot stop before max_new_tokens.
+            context(
+                f"{name}-forced-{max(cfg['context_lengths'])}",
+                context_length=max(cfg["context_lengths"]),
+                forced_length=True,
+            )
+            variants[name] = {
+                "metrics": metrics,
+                "contexts": contexts,
+                "bundle": str(final),
+                "lineage": {**lineage, "final_packed": metrics},
+            }
+        from appliance.wizard.job import context_coverage
+
+        required_context = int(cfg.get("required_context_tokens", 250000))
         benchmark_gate = None
         if benchmark is not None:
             # Each candidate must supply its own scores and matching artifact identity.
@@ -227,6 +299,7 @@ def run(cfg):
                 benchmark_gate[name] = score(scores)
         report = {
             "status": "completed",
+            "required_context_tokens": required_context,
             "identity": identity,
             "variants": variants,
             "baseline": baseline,
@@ -235,7 +308,14 @@ def run(cfg):
             "benchmark_execution": "external_isolated_harness_required",
             "checks": {
                 "needle_retrieval": all(
-                    c["needle_found"] for v in variants.values() for c in v["contexts"]
+                    c["needle_found"]
+                    for v in variants.values()
+                    for c in v["contexts"]
+                    if not c.get("forced_length")
+                ),
+                "context_coverage": all(
+                    context_coverage(v["contexts"], required_context)
+                    for v in variants.values()
                 ),
                 "within_vram_limit": all(
                     c.get("peak_device_mib") is not None

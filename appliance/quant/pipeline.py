@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from appliance.registry import command_for
@@ -23,9 +24,25 @@ def release_first_pass(out: Path) -> None:
     marker lets a resumed pipeline skip the first pass instead of re-verifying it.
     """
     parts = ["research-hf", "packed"]
+    # Marker first: if deletion is interrupted, resume still skips the first pass and
+    # this call (idempotent) finishes the deletion.
+    save_json(out / RELEASED, {"released": parts})
     for part in parts:
         shutil.rmtree(out / part, ignore_errors=True)
-    save_json(out / RELEASED, {"released": parts})
+
+
+def measure(spec, model, result: Path):
+    """Held-out loss of one model, cached so a resume never needs a released model."""
+    if result.exists():
+        return load_config(result)
+    config = result.with_suffix(".config.json")
+    save_json(config, spec)
+    subprocess.run(
+        [sys.executable, "-m", "appliance.proof.evaluate", "--config", str(config),
+         "--source", str(model), "--output", str(result)],
+        check=True,
+    )
+    return load_config(result)
 
 
 def run(cfg: dict):
@@ -41,6 +58,7 @@ def run(cfg: dict):
         raise ValueError("QAT recovery dataset is required")
     first_dir = data_path(cfg["output_dir"], os.environ.get("QWEN12G_DATA_ROOT", "/data"))
     if (first_dir / RELEASED).exists():
+        release_first_pass(first_dir)
         first = load_config(first_dir / "mixed-manifest.json")
     else:
         first = reconstruct(cfg)
@@ -71,8 +89,14 @@ def run(cfg: dict):
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    spec = cfg.get("lineage_eval")
+    lineage = {}
+    if spec:
+        lineage["first_pass"] = measure(spec, first["research_model"], out / "lineage-first-pass.json")
     # QAT creates its own config identity + resumable Trainer checkpoints.
     subprocess.run(command_for("qat_recovery", qat_path, qat_config), check=True)
+    if spec:
+        lineage["qat"] = measure(spec, recovered, out / "lineage-qat.json")
     if not cfg.get("keep_intermediates"):
         release_first_pass(out)
     final_cfg = {**cfg, "source_model": str(recovered), "output_dir": str(out / "requantized")}
@@ -82,7 +106,13 @@ def run(cfg: dict):
     final = reconstruct(final_cfg)
     save_json(
         out / "pipeline-manifest.json",
-        {"initial": first, "qat": str(out / "qat"), "final": final, "runtime_ready": False},
+        {
+            "initial": first,
+            "qat": str(out / "qat"),
+            "final": final,
+            "lineage": lineage,
+            "runtime_ready": False,
+        },
     )
     return final
 

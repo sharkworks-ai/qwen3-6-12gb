@@ -2,7 +2,9 @@ FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 ARG DEBIAN_FRONTEND=noninteractive
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
 ARG GIT_COMMIT=unknown
-ARG LLAMA_CPP_REF=master
+# Exact versions so identical source and configuration build identical environments;
+# these are the versions validated on 2x RTX 5090.
+ARG LLAMA_CPP_REF=097cf33d9499b1eade67d51e16d7c75427e7b267
 ARG LLAMA_CUDA_ARCHITECTURES="75;86;89;120"
 ARG BUILD_JOBS=2
 ARG GSQ_REF=03fc16484c369e3127225615d5e03e8d3a6043e3
@@ -13,14 +15,17 @@ COPY docker/extra-ca/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates
 ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv python3-dev git git-lfs curl ca-certificates build-essential cmake ninja-build pkg-config openssh-client rsync tini && rm -rf /var/lib/apt/lists/*
-RUN python3 -m pip install --no-cache-dir --break-system-packages torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}
+RUN python3 -m pip install --no-cache-dir --break-system-packages torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url ${PYTORCH_INDEX_URL}
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
-  "transformers>=5.17.0" "peft>=0.18.0" "trl>=1.14.0" "accelerate>=1.10.0" \
-  "bitsandbytes>=0.48.0" "datasets>=4.0.0" "safetensors>=0.5.0" "torchao>=0.17.0" \
-  "sentencepiece>=0.2" "protobuf>=5" \
-  "fastapi>=0.115" "uvicorn[standard]>=0.34" "jinja2>=3.1" "python-multipart>=0.0.18" "itsdangerous>=2.2" \
-  "huggingface_hub>=0.27" "httpx>=0.28" "PyYAML>=6.0" "pydantic>=2.9" "psutil>=6.0" "rich>=13.9" "typer>=0.12"
-RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} https://github.com/ggml-org/llama.cpp /opt/llama.cpp && \
+  "transformers==5.19.0" "peft==0.21.2" "trl==1.15.0" "accelerate==1.15.0" \
+  "bitsandbytes==0.50.2" "datasets==5.1.0" "safetensors==0.8.0" "torchao==0.18.0" \
+  "sentencepiece==0.2.2" "protobuf==7.36.2" \
+  "fastapi==0.143.0" "uvicorn[standard]==0.54.0" "jinja2==3.1.6" "python-multipart==0.0.32" "itsdangerous==2.2.0" \
+  "huggingface_hub==2.2.0" "httpx==0.28.1" "PyYAML==6.0.3" "pydantic==2.14.1" "psutil==7.2.2" "rich==15.0.0" "typer==0.27.3"
+# A commit, not a branch: fetch it directly (clone --branch only accepts names).
+RUN git init -q /opt/llama.cpp && \
+    git -C /opt/llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp ${LLAMA_CPP_REF} && \
+    git -C /opt/llama.cpp checkout -q FETCH_HEAD && \
     cmake -S /opt/llama.cpp -B /opt/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DCMAKE_CUDA_ARCHITECTURES="${LLAMA_CUDA_ARCHITECTURES}" -DCMAKE_EXE_LINKER_FLAGS='-L/usr/local/cuda/compat -Wl,-rpath-link,/usr/local/cuda/compat' && \
     cmake --build /opt/llama.cpp/build --config Release -j${BUILD_JOBS} --target llama-quantize llama-imatrix llama-cli llama-server
 WORKDIR /app

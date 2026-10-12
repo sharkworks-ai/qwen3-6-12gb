@@ -18,6 +18,11 @@ def test_escalation():
     assert decide({'coding_score':99,'agent_score':99,'long_context_score':99},ref,RecoveryPolicy())['action']=='accept_without_recovery'
     assert decide({'coding_score':97,'agent_score':97,'long_context_score':97},ref,RecoveryPolicy())['action']=='post_quant_recovery'
     assert decide({'coding_score':94,'agent_score':94,'long_context_score':97},ref,RecoveryPolicy())['action']=='qat_recovery'
+    # Missing or invalid evidence blocks the decision instead of accepting.
+    assert decide({},ref,RecoveryPolicy())['action']=='insufficient_evidence'
+    nan=decide({'coding_score':float('nan'),'agent_score':99,'long_context_score':99},ref,RecoveryPolicy())
+    assert nan['action']=='insufficient_evidence' and nan['missing']==['coding']
+    assert decide({'coding_score':99,'agent_score':99,'long_context_score':99},{**ref,'agent_score':0},RecoveryPolicy())['action']=='insufficient_evidence'
 
 def test_failure_buffer(tmp_path:Path):
     b=FailureBuffer(tmp_path/'f.jsonl'); rows=[{'prompt':'x','teacher_success':True,'student_success':False,'teacher_output':'good','student_output':'bad'}]
@@ -155,6 +160,13 @@ def test_pipeline_releases_first_pass_after_qat_and_resumes_past_it(tmp_path: Pa
     # A resume skips the released first pass instead of re-entering it.
     pipeline.run({**cfg, "resume": True})
     assert calls == ["first", "requantized", "requantized"]
+    # Interrupted mid-deletion: the marker is written first, so a resume still skips the
+    # first pass and finishes deleting what is left.
+    (first / "research-hf").mkdir()
+    (first / "research-hf" / "left-over.safetensors").write_text("x")
+    pipeline.run({**cfg, "resume": True})
+    assert calls == ["first", "requantized", "requantized", "requantized"]
+    assert not (first / "research-hf").exists()
     pipeline.run({**cfg, "keep_intermediates": True, "output_dir": str(tmp_path / "keep")})
     assert (tmp_path / "keep" / "research-hf").exists()
 

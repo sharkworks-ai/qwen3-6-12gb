@@ -34,6 +34,11 @@ def windows(total, width, stride):
         start = commit
 
 
+def sample_order(count, seed):
+    """Reproducible shuffled order of calibration samples for one window."""
+    return torch.randperm(count, generator=torch.Generator().manual_seed(seed)).tolist()
+
+
 def quantizer_cost(numel, spec):
     """Rough training bytes of one quantizer, per level and weight.
 
@@ -141,6 +146,9 @@ def _run(cfg):
         ):
             raise ValueError("Active window checkpoint integrity failure")
     if state.get("status") == "succeeded":
+        # Finish a cleanup interrupted after the pruned record was saved.
+        if not cfg.get("keep_intermediates") and not state["cache"]:
+            remove_resume_state(output)
         return load_config(output / "mixed-manifest.json")
     torch.manual_seed(int(cfg.get("seed", 42)))
     model = (
@@ -258,6 +266,9 @@ def _run(cfg):
                 for name in quantizers.keys() & old["quantizers"].keys():
                     quantizers[name].load_state_dict(old["quantizers"][name])
         metrics = []
+        # A seeded shuffle per window: with fewer steps than samples, cycling from 0
+        # would never train on the tail of the calibration set.
+        order = sample_order(len(rows), int(cfg.get("seed", 42)) + start)
         for step in range(first_step, steps):
             optimizer.zero_grad()
             schedule(quantizers, step, steps)
@@ -265,7 +276,7 @@ def _run(cfg):
                 group["lr"] = float(cfg.get("masks_lr", 0.0002)) * (
                     0.1 + 0.9 * (1 + math.cos(math.pi * step / steps)) / 2
                 )
-            sample = step % len(rows)
+            sample = order[step % len(rows)]
             initial = (
                 torch.load(student / f"block-{start}-sample-{sample}.pt", weights_only=True)
                 if start
@@ -409,6 +420,11 @@ def _run(cfg):
         "upstream_scaleq_reproduction": False,
         "tensors": state["completed"],
         "native_context_target": 262144,
+        "training_coverage": {
+            "samples": len(rows),
+            "steps_per_window": steps,
+            "samples_trained_per_window": min(steps, len(rows)),
+        },
         "synthetic_proof": bool(cfg.get("proof_mode")),
         "research_files": {p.name: file_hash(p) for p in research.iterdir() if p.is_file()},
     }
@@ -416,9 +432,8 @@ def _run(cfg):
     if not cfg.get("keep_intermediates"):
         # Teacher cache, student inputs and window checkpoints only serve resume; the
         # manifest, packed tensors and export are the result. Drop them from the resume
-        # record too, so a later resume of this succeeded run still verifies.
-        for part in (cache, student, checkpoints):
-            shutil.rmtree(part, ignore_errors=True)
+        # record first and save it, then delete, so an interruption in between leaves a
+        # record that still verifies; a resume finishes the deletion.
         state["cache"] = {}
         state.pop("active", None)
         state["exports"] = {
@@ -426,7 +441,14 @@ def _run(cfg):
         }
     state["status"] = "succeeded"
     save_json(state_path, state)
+    if not cfg.get("keep_intermediates"):
+        remove_resume_state(output)
     return manifest
+
+
+def remove_resume_state(output):
+    for part in ("teacher-cache", "student-inputs", "training-checkpoints"):
+        shutil.rmtree(output / part, ignore_errors=True)
 
 
 def main():
