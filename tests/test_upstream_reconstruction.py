@@ -266,3 +266,14 @@ def test_window_memory_check_rejects_oversized_windows(monkeypatch):
     check_window_fits({"cpu": 10**15}, 0, 2)
     with pytest.raises(ValueError, match=r"Window 0:2 needs about 43 GiB on cuda:1"):
         check_window_fits({"cuda:0": 20 * 2**30, "cuda:1": 43 * 2**30}, 0, 2)
+
+
+def test_ternary_quantizer_returns_the_source_dtype(upstream):
+    # CAT-Q computes in FP32; on GPUs the block runs in BF16, and the first ternary
+    # window of a real extreme run failed with "BFloat16 != float" in the expert matmul.
+    components = load_components({**upstream, "preset": "extreme"})
+    weight = torch.randn(2, 8, 32).to(torch.bfloat16)
+    q = ProjectionQuantizer(weight, {"bits": 1.58, "group_size": 32}, components, None, {})
+    assert q().dtype == torch.bfloat16
+    q().float().square().mean().backward()
+    assert q.lora_b.grad.abs().sum() > 0

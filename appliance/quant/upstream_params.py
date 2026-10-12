@@ -42,6 +42,7 @@ class ProjectionQuantizer(torch.nn.Module):
     def __init__(self, weight, spec, components, hessian, cfg):
         super().__init__()
         self.shape = tuple(weight.shape)
+        self.dtype = weight.dtype
         self.spec = spec
         self.temperature = 2.0
         self.logit_scale = 10.0
@@ -135,7 +136,9 @@ class ProjectionQuantizer(torch.nn.Module):
                 if self.training
                 else self.quantizer.get_hard_weights()[0]
             )
-        return result.reshape(self.shape)
+        # CAT-Q's ternary quantizer computes in FP32; the block it feeds runs in the
+        # source dtype (BF16 on GPUs), and mixed dtypes fail in the expert matmul.
+        return result.reshape(self.shape).to(self.dtype)
 
     def packed(self):
         from appliance.quant.lowbit import pack_codes
