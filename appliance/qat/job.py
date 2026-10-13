@@ -124,7 +124,7 @@ def main():
         raise ValueError("No QAT tensors matched")
     tok = AutoTokenizer.from_pretrained(cfg["student_model"], trust_remote_code=True)
     ds = load_dataset("json", data_files=cfg["dataset"], split="train")
-    ml = int(cfg.get("max_length", 8192))
+    ml = int(cfg.get("max_length", 4096))
 
     # "assistant" (default) matches SFT: only assistant tokens are scored. "all" also
     # trains on system, user and tool text, and is kept as an explicit experiment.

@@ -291,6 +291,30 @@ def test_reconstruction_sample_order_covers_the_set_reproducibly():
     assert sample_order(128, 42) == order and sample_order(128, 43) != order
 
 
+def test_greedy_prefills_in_chunks_and_forces_length():
+    from types import SimpleNamespace
+
+    from appliance.proof.validation import greedy
+
+    class Model:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, input_ids, past_key_values, use_cache, cache_position, **_):
+            self.calls.append(cache_position.tolist())
+            logits = torch.zeros(1, input_ids.shape[-1], 8)
+            logits[..., 0] = 10.0  # stop token always wins
+            logits[..., 3] = 5.0
+            return SimpleNamespace(past_key_values=len(self.calls), logits=logits)
+
+    model = Model()
+    assert greedy(model, torch.arange(5)[None], 6, [0], prefill_chunk=2) == [0]
+    assert model.calls == [[0, 1], [2, 3], [4]]
+    model = Model()
+    assert greedy(model, torch.arange(5)[None], 6, [0], prefill_chunk=4, forced=True) == [3] * 6
+    assert model.calls == [[0, 1, 2, 3], [4], [5], [6], [7], [8], [9]]
+
+
 def test_needle_prompts_vary_position_secret_and_include_decoys():
     from appliance.proof.validation import needle_prompt
 

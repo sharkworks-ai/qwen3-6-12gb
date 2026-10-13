@@ -185,7 +185,7 @@ def compile_plan(answers, root="/data", *, check_inputs=True):
         "context_repeats": integer(answers, "context_repeats", 5, 1, 20),
         "max_new_tokens": generated,
         "runtime_device": "cuda:0",
-        "chunk_rows": 128,
+        "chunk_rows": 2048,
         "window_devices": [f"cuda:{i}" for i in range(count)],
         "max_memory": max_memory,
         "recovery": {

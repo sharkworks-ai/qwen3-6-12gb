@@ -75,7 +75,13 @@ def test_complete_proof_and_resume(tmp_path, monkeypatch):
             model.generate(torch.tensor([[4, 5, 6]]), max_new_tokens=2, do_sample=False).shape[-1]
             == 5
         )
-    artifact = Path(result["variants"]["extreme"]["bundle"])
+        # Chunked prefill plus direct decoding must match generate's greedy tokens.
+        from appliance.proof.validation import greedy
+
+        prompt = torch.tensor([[4, 5, 6, 7, 8]])
+        expected = model.generate(prompt, max_new_tokens=4, min_new_tokens=4, do_sample=False)
+        assert greedy(model, prompt, 4, [], prefill_chunk=2) == expected[0, 5:].tolist()
+    artifact =Path(result["variants"]["extreme"]["bundle"])
     manifest = json.loads((artifact / "mixed-manifest.json").read_text())
     packed_file = artifact / next(iter(manifest["tensors"].values()))["file"]
     packed_file.write_bytes(b"tampered")

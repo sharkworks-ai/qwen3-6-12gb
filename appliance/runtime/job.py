@@ -27,7 +27,7 @@ def run(cfg):
     torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(device)
     started = time.monotonic()
-    model = load_packed(bundle, device=device, chunk_rows=int(cfg.get("chunk_rows", 128)))
+    model = load_packed(bundle, device=device, chunk_rows=int(cfg.get("chunk_rows", 2048)))
     model.set_attn_implementation("sdpa")
     tokenizer = AutoTokenizer.from_pretrained(bundle / "research-hf", trust_remote_code=False)
     tokens = tokenizer(str(cfg["prompt"]), return_tensors="pt").to(device)

@@ -48,7 +48,9 @@ def preset(name: str) -> dict:
             "trainable": "lora",
             "max_steps": 200,
             "save_steps": 50,
-            "max_length": 8192,
+            # 8192 tokens ran out of memory on 2x RTX 5090 (about 30 GB per GPU);
+            # 4096 peaks at 29 GB and truncates 3% of the r0b0tlab recovery rows.
+            "max_length": 4096,
             "batch_size": 1,
             "gradient_accumulation_steps": 8,
             "learning_rate": 0.000005,

@@ -23,7 +23,7 @@ def defaults():
         "qat_steps": 10,
         "checkpoint_steps": 5,
         "learning_rate": 0.0003,
-        "chunk_rows": 128,
+        "chunk_rows": 2048,
         "vram_limit_gib": 11.5,
     }
 

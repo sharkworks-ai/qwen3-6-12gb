@@ -277,6 +277,32 @@ Lineage from `smoke-train-10` (32 held-out records x 1,024 tokens, token-weighte
 - These are smoke-test diagnostics, not quality claims. Coding, tool use and
   long-context retention remain untested.
 
+## Probes before a full-scale run
+
+Measured on the `probe-1` aggressive bundle and full-scale settings before committing
+to a long run:
+
+| Probe | Result |
+|---|---|
+| Reconstruction, 128 samples up to 2,048 tokens, 100 steps per window | Teacher cache 48 min and 45 GB; then 1.3 to 2 min per window; peak 18.2 / 28.6 GB |
+| QAT LoRA at 8,192 tokens | About 30 GB per GPU; out of memory on step 2 |
+| QAT LoRA at 4,096 tokens | 29.0 / 29.0 GB, 42 s per step |
+| Packed runtime, `chunk_rows` 128 vs 2,048 (4k prompt) | Prefill 12.9 s vs 2.6 s; 11.9 s vs 2.4 s per token with `generate`; same peak |
+| Whole-prompt prefill | About 230 KB of activations per prompt token: 14.6 GB at 32k, out of memory at 131k |
+| Prefill in 4,096-token chunks, direct decode loop | 8.2 GB at 8k, 10.3 GB at 65k, 13.4 GB at 131k, 19.0 GB at 250k; needle found at every length; 0.34 s per token |
+
+- **Decode is launch-bound, not GPU-bound.** The packed runtime unpacks weights in
+  `chunk_rows` slices on every forward pass; at 128 rows one token launches tens of
+  thousands of small kernels. 2,048 rows is the new default.
+- **`generate` adds large overhead on this runtime.** A direct decode loop is about 7x
+  faster per token.
+- **Full 262k context does not fit 12 GB yet.** The KV cache grows by concatenation
+  (old and new copies at the peak) and is BF16; even without the copy, about 5 GiB of
+  KV at 250k plus 6.8 GiB of weights exceeds 11.5 GiB (estimate). A preallocated cache
+  and FP8 KV are needed. 65,536 tokens fits (11.3 GB on the device).
+- **Recovery data:** 567 of 19,071 r0b0tlab recovery rows exceed 4,096 tokens and are
+  truncated at that length. One source row had malformed tool-call JSON and is dropped.
+
 ## Library compatibility issues and fixes
 
 | Library | Problem | Fix |
@@ -348,8 +374,8 @@ speed-up.
   prove the path works; QAT effect and reconstruction quality need real budgets.
 - **Report field.** `baseline_logit_mse` is now empty because the baseline no longer
   saves logits; lineage replaces it.
-- **Recovery `max_length` defaults to 8192** in the presets. Measure memory before
-  using it at scale.
+- **250k context on 12 GB:** preallocated KV cache and FP8 KV in the packed runtime,
+  then rerun the context check at 250,000 tokens.
 - **Host RAM headroom** is thin for BF16 offload and reconstruction; avoid other
   memory-heavy work on the host during runs.
 - **Docker build cache eviction** costs 25 to 40 minutes per appliance change.

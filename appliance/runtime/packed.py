@@ -34,7 +34,7 @@ def child(root, value):
 
 
 class PackedWeight(torch.nn.Module):
-    def __init__(self, codes, scales, spec, shape, chunk_rows=128):
+    def __init__(self, codes, scales, spec, shape, chunk_rows=2048):
         super().__init__()
         self.register_buffer("codes", codes)
         self.register_buffer("scales", scales.reshape(-1))
@@ -120,7 +120,7 @@ class PackedExperts(torch.nn.Module):
         return result
 
 
-def load_packed(bundle, *, device="cuda:0", dtype=None, chunk_rows=128):
+def load_packed(bundle, *, device="cuda:0", dtype=None, chunk_rows=2048):
     """Build on meta; never load quantized BF16 parameters from research shards."""
     from accelerate import init_empty_weights
     from transformers import AutoConfig, AutoModelForCausalLM

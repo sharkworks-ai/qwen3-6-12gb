@@ -35,25 +35,28 @@ def context_check(cfg):
     if length + generated > 262144:
         raise ValueError("Prompt plus generation exceeds native context")
     tokens, secret, position = needle_prompt(tokenizer, length, int(cfg.get("repetition", 0)))
-    inputs = torch.tensor([tokens], device=cfg["runtime_device"])
-    torch.cuda.reset_peak_memory_stats(cfg["runtime_device"])
+    device = cfg["runtime_device"]
+    inputs = torch.tensor([tokens], device=device)
+    torch.cuda.reset_peak_memory_stats(device)
     forced = bool(cfg.get("forced_length"))
-    output = model.generate(
+    stops = model.generation_config.eos_token_id
+    stops = sorted({tokenizer.eos_token_id, *(stops if isinstance(stops, list) else [stops])} - {None})
+    output = greedy(
+        model,
         inputs,
-        attention_mask=torch.ones_like(inputs),
-        max_new_tokens=generated,
+        generated,
+        stops,
+        prefill_chunk=int(cfg.get("prefill_chunk", 4096)),
         # Forced length: an early EOS would leave the generation budget unmeasured.
-        min_new_tokens=generated if forced else None,
-        do_sample=False,
-        use_cache=True,
-        pad_token_id=tokenizer.eos_token_id,
+        forced=forced,
     )
-    answer = tokenizer.decode(output[0, length:], skip_special_tokens=True)
+    answer = tokenizer.decode(output, skip_special_tokens=True)
     return {
         "prompt_tokens": length,
-        "generated_tokens": output.shape[-1] - length,
+        "generated_tokens": len(output),
         "max_new_tokens": generated,
         "forced_length": forced,
+        "prefill_chunk": int(cfg.get("prefill_chunk", 4096)),
         "needle_position": position,
         "needle_found": secret in answer,
         "answer": answer[:2000],
@@ -61,6 +64,49 @@ def context_check(cfg):
         "note": "Needle retrieval with distractors, plus a forced-length memory run; "
         "not repository-scale coding or tool-history validation.",
     }
+
+
+@torch.inference_mode()
+def greedy(model, inputs, max_new_tokens, stops, *, prefill_chunk=4096, forced=False):
+    """Greedy decode with the prompt prefilled in chunks; returns the new token ids.
+
+    A whole-prompt forward holds activations for every prompt token at once (about
+    7.6 GB extra at 32k tokens on Qwen3.6), so the prompt goes through the cache in
+    chunks. Decoding feeds one token at a time directly, which is several times faster
+    than `generate` on the packed runtime. With `forced`, stop tokens are suppressed so
+    the whole budget is generated.
+    """
+    if prefill_chunk < 1 or max_new_tokens < 1:
+        raise ValueError("Invalid prefill chunk or generation budget")
+    device = inputs.device
+    length = inputs.shape[-1]
+    cache, logits = None, None
+    for start in range(0, length, prefill_chunk):
+        end = min(start + prefill_chunk, length)
+        result = model(
+            input_ids=inputs[:, start:end],
+            past_key_values=cache,
+            use_cache=True,
+            cache_position=torch.arange(start, end, device=device),
+            logits_to_keep=1,
+        )
+        cache, logits = result.past_key_values, result.logits[:, -1]
+    output = []
+    for step in range(max_new_tokens):
+        if forced and stops:
+            logits[:, stops] = float("-inf")
+        token = int(logits.argmax(-1))
+        output.append(token)
+        if token in stops or step == max_new_tokens - 1:
+            break
+        result = model(
+            input_ids=torch.tensor([[token]], device=device),
+            past_key_values=cache,
+            use_cache=True,
+            cache_position=torch.tensor([length + step], device=device),
+        )
+        cache, logits = result.past_key_values, result.logits[:, -1]
+    return output
 
 
 NEEDLE_POSITIONS = (0.1, 0.5, 0.9, 0.3, 0.7)
@@ -124,7 +170,7 @@ def needle_prompt(tokenizer, length, repetition):
 
 def run(cfg):
     cfg = {**validation_defaults(), **cfg}
-    cfg.setdefault("chunk_rows", 128)
+    cfg.setdefault("chunk_rows", 2048)
     cfg.setdefault("seed", 42)
     root = os.environ.get("QWEN12G_DATA_ROOT", "/data")
     output = data_path(cfg["output_dir"], root)
