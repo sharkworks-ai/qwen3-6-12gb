@@ -3,7 +3,7 @@
 This records what was learnt while validating the appliance, worker tooling and the
 full train/prune/compress/recover pipeline on a dual RTX 5090 lab host with the real
 Qwen3.6-35B-A3B model. Figures are measurements from that host unless marked as
-estimates. Status is as of `c9fdd3c` on `dev`.
+estimates. Status is as of `edd04d7` on `dev`.
 
 ## Summary
 
@@ -12,13 +12,15 @@ estimates. Status is as of `c9fdd3c` on `dev`.
   replica is about 62 GiB per GPU.
 - Pruning before SFT, running SFT and QAT as one process sharded across both GPUs, and
   training QAT as LoRA corrections through the quantizer makes every stage fit.
-- A full training run (`smoke-train-5`) completed every stage end to end, and the
-  compressed model fits the memory target (about 7.3 GB of weights, about 9 GB peak on
-  one GPU). Its quality was destroyed by a re-quantization bug, now found and fixed.
-- With all fixes, the aggressive variant keeps the model working at every stage
-  (held-out loss 1.66 uncompressed, 1.86 after the full compression pipeline, smoke
-  settings). A confirming end-to-end run (`smoke-train-6`) was in progress when this
-  was written.
+- `smoke-train-10` completed every stage for both variants, including the extreme
+  variant and AYOT for the first time. Both compressed bundles fit the memory target
+  (9.9 GB and 9.2 GB peak on one GPU).
+- The aggressive variant works: held-out loss 1.434 for the original model, 1.629 for
+  the final bundle, and it retrieves a needle at 10%, 50% and 90% of a 4,096-token
+  prompt. The extreme variant is too degraded (loss 2.88) and answers nothing; most of
+  its loss comes from re-quantization.
+- An independent review found ten weaknesses in cleanup, evidence and reproducibility;
+  all were confirmed and fixed (see "Evidence and reproducibility").
 - Library drift (Transformers 5, TRL 1.15, PEFT) caused most of the individual
   failures; each is fixed and listed below.
 
@@ -72,12 +74,15 @@ Parameter counts, read from the checkpoint files:
 | Profile, BF16 with CPU overflow | fixed | 28.1 / 28.0 GB | works |
 | Baseline evaluation | BF16 `device_map=auto` | 19.3 / 19.6 GB | works |
 | Reconstruction (GSQ 2/4-bit), 1 layer per window | original | up to 32.1 GB / idle | works only with expandable segments |
+| Reconstruction, quantizers spread by estimated load | fixed | 31.5 / 31.6 GB (whole aggressive pipeline) | works |
+| Extreme window 0 with 3-bit sensitive experts | original preset | about 43 GiB estimated per GPU | does not fit |
+| Extreme window 0 with 2-bit sensitive experts | fixed | 29.9 / 29.6 GB | works |
 | SFT on pruned model, model-parallel 4-bit | fixed | 20.1 / 22.7 GB, about 28 s per step | works |
 | Merge adapter | BF16 `device_map=auto` | 22.1 / 22.2 GB | works |
 | QAT full-parameter FSDP | original design | about 140 GB estimated for a 128-expert student | does not fit |
 | QAT LoRA through the quantizer, model-parallel | fixed | about 28.5 / 28.9 GB, about 17 s per step | works |
-| Packed evaluation of the compressed model | eager packed runtime | 9.3 GB on one GPU | fits the 11.5 GiB target |
-| 4,096-token context check | eager packed runtime | 8.8 GB on one GPU | fits the 11.5 GiB target |
+| Packed evaluation, aggressive / extreme | eager packed runtime | 9.9 / 9.2 GB on one GPU | fits the 11.5 GiB target |
+| 4,096-token context check, forced to 64 new tokens | eager packed runtime | 8.8 / 8.0 GB on one GPU | fits the 11.5 GiB target |
 
 Key lessons:
 
@@ -96,6 +101,17 @@ Key lessons:
 - **A parent process can hold GPU memory its child needs.** The pipeline reconstructs
   in-process and then launches QAT as a subprocess; the parent still held about 9 GB of
   cached memory on GPU 0. Collect garbage and empty the CUDA cache before launching.
+- **Estimate quantizer memory before building it.** GSQ keeps per-level state, about
+  12 bytes per level per weight (calibrated on a measured aggressive layer), so a 3-bit
+  tensor costs twice a 2-bit one. `check_window_fits()` now fails with a clear message
+  instead of an OOM partway through building quantizers.
+- **Mixed precision across devices needs explicit casts.** CAT-Q's ternary quantizer
+  computes in FP32 while the block runs in BF16 on GPU; CPU tests run FP32 throughout
+  and never saw the mismatch. Quantizers now return the source weight's dtype.
+- **Other GPU workloads on a shared host break runs.** A vLLM container started on the
+  same GPUs mid-run took about 27 GB on each, and the next stage ran out of memory.
+  Check that the GPUs are free before starting and keep other services off them for the
+  whole run; the run resumes once they are clear.
 - **Host RAM is the next constraint.** Profiling and baseline spill BF16 weights to CPU,
   and reconstruction holds the source in RAM. Available RAM dipped to 44 GB in one
   stage.
@@ -114,7 +130,16 @@ Key lessons:
   | Re-quantized bundle (final) | about 56 GB at peak | Deliverable |
 
 - **The end-of-variant release works**: the same run dropped from 180 GB to 100 GB once
-  re-quantization succeeded. The problem is the peak while the variant runs.
+  re-quantization succeeded. The problem was the peak while the variant runs.
+- **Releasing earlier cut the peak.** Reconstruction now deletes its resume state on
+  success, QAT checkpoints hold only the LoRA adapters, and the first-pass export goes
+  as soon as QAT has saved. `smoke-train-10` ran both variants with disk utilisation
+  peaking at 79% (from 61%), and its run directory held 115 GB at the end.
+- **Record a deletion before doing it.** If a run stops partway through deleting, the
+  next resume must know to finish the job rather than fail its integrity check. Each
+  release now writes its intent first and a resume completes it.
+- **Hugging Face cache blobs can be shared** between snapshots of the same repository.
+  Deleting a snapshot's blobs must skip any that another snapshot links to.
 - **A disk guard makes long runs safe.** A small host script checks utilisation every
   10 seconds and stops the run's pipeline processes at 88%, below a 90% ceiling; the run
   then resumes once space is freed. Start it before the image build so it covers the
@@ -147,6 +172,43 @@ Key lessons:
    merge, and each variant's first-pass export and QAT state after re-quantization.
    `keep_intermediates` disables this; `release_source_after_merge` opts in to deleting
    the base checkpoint.
+
+7. **Extreme: 2-bit sensitive experts.** The extreme preset's 3-bit early-layer experts
+   did not fit a reconstruction window; they now use 2-bit GSQ like the aggressive
+   preset.
+8. **AYOT budget.** The SFT model can reason for more than 2,048 tokens on a hard
+   teacher prompt without closing `</think>`; one such prompt failed the whole stage.
+   The budget is now 4,096 tokens, unfinished traces are skipped and recorded, and the
+   stage fails only if fewer than 75% of prompts complete. In `smoke-train-9`, 7 of 8
+   traces completed.
+
+## Evidence and reproducibility
+
+An independent review of `6c2e3b3` raised ten points. Each was confirmed against the
+code and fixed in `4cc977c`:
+
+| Finding | Fix |
+|---|---|
+| Cleanup ordering could break resume | Deletion intent recorded first; resume finishes it |
+| Removing a model could damage sibling cached snapshots | Shared blobs are kept |
+| Ranking did not require full context | `required_context_tokens` (default 250,000) plus a forced-length run must pass |
+| Baseline was the SFT model, hiding pruning loss | Lineage of held-out loss from the original model to the final bundle |
+| Weak needle test (same secret and position) | Position and secret vary per repeat, with decoys and a forced-length run |
+| QAT trained on the whole conversation | Assistant tokens only by default (25% of recovery tokens) |
+| Evaluation too small, averaged per record, weak contamination check | 32 x 1,024 tokens, token-weighted; held-out tasks checked against training, recovery and prompt data |
+| Reconstruction sampling missed samples | Seeded shuffle per window; coverage recorded |
+| Recovery decisions accepted missing metrics | Missing or invalid metrics give `insufficient_evidence` |
+| QAT seeded after adapter init; open version ranges | Seed first; exact package pins and a pinned llama.cpp commit |
+
+- **Check the test as well as the model.** The needle check fed raw text to a
+  chat-tuned model, which answered with a blank line and stopped. Asked as a chat turn
+  (thinking off, same prompt length), the aggressive bundle found the secret at every
+  position tested.
+- **Contamination: compare tasks, not every turn.** Comparing all user turns flagged
+  templated follow-up turns shared by unrelated conversations.
+  Comparing first user turns gave zero overlap on the r0b0tlab data.
+- **Not yet covered:** long-context tests on repository-scale tasks and tool history,
+  and an untouched final test set. Both need the isolated benchmark harness.
 
 ## The re-quantization bug
 
@@ -190,10 +252,27 @@ and perplexity is e^loss. Uniform guessing over the vocabulary scores ln(248,320
 | Same reconstruction through the reconstruction-grid quantizer | 1.504 (as saved: 1.506) |
 | Stage-by-stage results | see the table above |
 
-- Reconstruction costs about +0.12 (perplexity about 13% higher) even with 2 steps per
-  layer.
-- Ten QAT steps change nothing measurable; re-running GSQ in re-quantization costs about
-  +0.08. Both should be re-measured at real-scale settings.
+Lineage from `smoke-train-10` (32 held-out records x 1,024 tokens, token-weighted,
+19,509 scored tokens; 10 SFT steps, 2 reconstruction steps per window, 10 QAT steps):
+
+| Stage | Aggressive | Extreme |
+|---|---|---|
+| Original 35B | 1.434 | 1.434 |
+| Pruned to 128 experts | 1.545 | 1.545 |
+| SFT merged | 1.470 | 1.470 |
+| First-pass reconstruction | 1.533 | 2.021 |
+| After QAT | 1.534 | 2.019 |
+| Final packed bundle | 1.629 | 2.882 |
+| Needle found at 4,096 tokens (chat prompt) | 3 of 3 | 0 of 3 |
+
+- Pruning costs about +0.11; ten SFT steps recover about two thirds of it.
+- Reconstruction costs about +0.06 for aggressive and +0.55 for extreme.
+- Ten QAT steps change nothing measurable.
+- Re-quantization costs +0.10 for aggressive but +0.86 for extreme, the largest single
+  loss in the pipeline. Packing QAT output on the first-pass grid (see open issues)
+  would avoid this step.
+- Figures in the older table above used 8 or 32 records averaged per record and are
+  not directly comparable.
 - Differences under about 0.05 are noise at these sample sizes.
 - These are smoke-test diagnostics, not quality claims. Coding, tool use and
   long-context retention remain untested.
@@ -259,18 +338,16 @@ speed-up.
 
 ## Open issues and next steps
 
-- **Confirm `smoke-train-6`** end to end on `c9fdd3c`, including packed evaluation and
-  the context check on a working compressed model.
-- **Reduce the per-variant disk peak**, estimated at about 95 GB per variant: delete
-  reconstruction resume state on success, store only LoRA adapters and optimiser state
-  in QAT checkpoints, and release the first-pass export as soon as QAT has saved.
+- **Extreme re-quantization loss (+0.86).** Find whether it is the second GSQ pass at
+  2 bits or ternary CAT-Q, by evaluating each tensor group separately.
 - **Consider packing QAT output directly.** QAT now trains on the reconstruction's grid,
   so its output is already on the packed grid. Packing it with the first-pass scales
   would replace the second GSQ pass: no re-quantization loss, and about 20 minutes and
   56 GB saved per variant. This is a design change.
-- **Spread reconstruction across both GPUs.** It peaks at 32.1 GB on GPU 0 with GPU 1
-  idle; real-scale settings will likely OOM.
-- **Extreme variant and AYOT** (teacher reasoning traces) are untested on hardware.
+- **Real-scale settings.** Smoke settings (2 reconstruction steps, 10 QAT steps) only
+  prove the path works; QAT effect and reconstruction quality need real budgets.
+- **Report field.** `baseline_logit_mse` is now empty because the baseline no longer
+  saves logits; lineage replaces it.
 - **Recovery `max_length` defaults to 8192** in the presets. Measure memory before
   using it at scale.
 - **Host RAM headroom** is thin for BF16 offload and reconstruction; avoid other
@@ -278,8 +355,9 @@ speed-up.
 - **Docker build cache eviction** costs 25 to 40 minutes per appliance change.
 - **Optional kernels** (`causal_conv1d`, `flash-linear-attention`) for faster linear
   attention.
-- **Release gates** (coding and tool-use benchmarks, full-context quality) remain
-  untested; the smoke results are process checks only.
+- **Release gates** (coding and tool-use benchmarks, full 250,000-token context,
+  repository and tool-history recall) remain untested; the smoke results are process
+  checks only.
 
 ## Commits on `dev` from this work
 
@@ -300,3 +378,10 @@ speed-up.
 | `146b7ce` | Document lessons from bringing the pipeline up on 2x RTX 5090 |
 | `239d9d5` | QAT grid: handle signed and zero GSQ scales; free GPU before QAT |
 | `c9fdd3c` | Fix re-quantization blow-up: typical GSQ step for all-zero groups |
+| `0d51658` | Update 2x RTX 5090 lessons: re-quantization bug, disk, parameter counts |
+| `6c2e3b3` | Cut per-variant disk peak and spread reconstruction across GPUs |
+| `0d7f85d` | Extreme: 2-bit sensitive experts; check window memory before building |
+| `7dd11bb` | AYOT: 4096-token budget; skip unfinished traces instead of failing |
+| `15e323d` | Return quantizer outputs in the source weight dtype |
+| `4cc977c` | Address independent review: safe cleanup, evidence gates, lineage, QAT loss |
+| `edd04d7` | Ask the needle question as a chat turn |
