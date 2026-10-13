@@ -85,9 +85,21 @@ def needle_prompt(tokenizer, length, repetition):
     def encode(text):
         return tokenizer.encode(text, add_special_tokens=False)
 
-    prefix = encode("Remember the secret code in these notes. Old codes are retired.\n")
+    # A chat-tuned model given raw text ends its turn at once, so ask as a user turn
+    # with the reply opened (thinking off) whenever the tokenizer has a chat template.
+    head, tail = "", ""
+    if getattr(tokenizer, "chat_template", None):
+        marker = "\x00"
+        wrapped = tokenizer.apply_chat_template(
+            [{"role": "user", "content": marker}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        head, tail = wrapped.split(marker)
+    prefix = encode(head + "Remember the secret code in these notes. Old codes are retired.\n")
     needle = encode(f"\nThe current secret code is {secret}.\n")
-    suffix = encode("\nReturn only the current secret code.\n")
+    suffix = encode("\nReturn only the current secret code." + tail)
     filler = encode("Ordinary project notes. No secret code here.\n")
     decoys = [encode(f"\nA retired code was {code()}; it is no longer valid.\n") for _ in range(4)]
     fixed = len(prefix) + len(needle) + len(suffix) + sum(len(d) for d in decoys)

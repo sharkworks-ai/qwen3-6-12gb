@@ -306,3 +306,17 @@ def test_needle_prompts_vary_position_secret_and_include_decoys():
     text = "".join(chr(t) for t in tokens)
     assert text.count(f"current secret code is {secret}") == 1
     assert text.count("A retired code was") == 4
+
+    class ChatTokenizer(Tokenizer):
+        chat_template = "chat"
+
+        def apply_chat_template(self, messages, **options):
+            assert options["add_generation_prompt"] and not options["enable_thinking"]
+            return f"<user>{messages[0]['content']}</user><assistant>"
+
+    tokens, secret, _ = needle_prompt(ChatTokenizer(), 6000, 0)
+    text = "".join(chr(t) for t in tokens)
+    assert len(tokens) == 6000
+    assert text.startswith("<user>Remember the secret code")
+    assert text.endswith("Return only the current secret code.</user><assistant>")
+    assert text.count(f"current secret code is {secret}") == 1
