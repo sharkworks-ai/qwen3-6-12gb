@@ -58,6 +58,10 @@ def tool_call(call):
             function["arguments"] = json.loads(arguments) if arguments.strip() else {}
         except json.JSONDecodeError:
             pass
+    if not isinstance(function.get("arguments", {}), dict):
+        # Malformed source arguments (one recovery row has a literal "...") cannot be
+        # rendered and would fail training mid-run.
+        return None
     return {**call, "function": function}
 
 
@@ -74,6 +78,8 @@ def clean_message(message):
 
 def conversation(row):
     record = {"messages": [clean_message(m) for m in row["messages"]]}
+    if any(None in m.get("tool_calls", []) for m in record["messages"]):
+        return None
     if row.get("tools"):
         record["tools"] = row["tools"]
     return record
